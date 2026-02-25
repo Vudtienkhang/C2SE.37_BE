@@ -1,0 +1,30 @@
+# Logs
+logs
+*.log
+
+# Dependency directories
+node_modules/
+
+# Build outputs
+dist
+dist-ssr
+
+# Env files
+.env
+*.local
+
+# Model AI Feedback
+feedback_api/
+feedback_api/**
+
+# Editor directories and files
+.vscode/
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+/lib/generated/prisma
