@@ -8,9 +8,10 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// TODO: Import and use routers here
-// import exampleRouter from './routers/exampleRouter.js';
-// app.use('/api/example', exampleRouter);
+// Routers
+import authRouter from './routers/auth.router.js';
+
+app.use('/api/auth', authRouter);
 
 // Base route
 app.get('/', (req, res) => {
