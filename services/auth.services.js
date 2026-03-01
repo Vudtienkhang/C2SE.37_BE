@@ -30,3 +30,30 @@ export const registerUser = async ({ fullName, phone, password, roleId }) => {
 
   return newUser;
 };
+
+export const loginUser = async ({ phone, password }) => {
+  // 1. Tìm người dùng theo số điện thoại
+  const user = await prisma.user.findUnique({
+    where: { phone },
+  });
+
+  // 2. Kiểm tra xem người dùng có tồn tại không
+  if (!user) {
+    throw new Error('Số điện thoại hoặc mật khẩu không chính xác.');
+  }
+
+  // 3. So sánh mật khẩu
+  const isPasswordValid = await bcrypt.compare(password, user.password);
+
+  if (!isPasswordValid) {
+    throw new Error('Số điện thoại hoặc mật khẩu không chính xác.');
+  }
+
+  // 4. Trả về thông tin người dùng (không trả về password)
+  return {
+    id: user.id,
+    fullName: user.fullName,
+    phone: user.phone,
+    roleId: user.roleId,
+  };
+};
