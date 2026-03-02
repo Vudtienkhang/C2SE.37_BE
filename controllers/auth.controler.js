@@ -3,13 +3,28 @@ import * as authService from '../services/auth.services.js';
 export const register = async (req, res) => {
   try {
     const { fullName, phone, password, roleId } = req.body;
-
+    console.log('Dữ liệu đăng ký nhận được:', { fullName, phone, password, roleId });
     // Validate dữ liệu đầu vào
     if (!fullName || !phone || !password) {
-      console.log('Thiếu dữ liệu đầu vào:', { fullName, phone, password });
+      console.log('Lỗi: Thiếu dữ liệu đầu vào:', { fullName, phone, password });
       return res.status(400).json({
         success: false,
         message: 'Vui lòng cung cấp đầy đủ: fullName, phone, và password.',
+      });
+    }
+
+    const phoneRegex = /^(0|84)(3|5|7|8|9)[0-9]{8}$/;
+    if (!phoneRegex.test(phone)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Số điện thoại không hợp lệ. Vui lòng nhập số điện thoại chuẩn Việt Nam.',
+      });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: 'Mật khẩu phải có ít nhất 8 ký tự.',
       });
     }
 
@@ -18,7 +33,7 @@ export const register = async (req, res) => {
       fullName,
       phone,
       password,
-      roleId: roleId ? parseInt(roleId) : 1,
+      roleId: roleId ? parseInt(roleId) : 3,
     });
 
     // Trả về response thành công (không trả về password)
@@ -59,6 +74,21 @@ export const login = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Vui lòng cung cấp đầy đủ: phone và password.',
+      });
+    }
+
+    const phoneRegex = /^(0|84)(3|5|7|8|9)[0-9]{8}$/;
+    if (!phoneRegex.test(phone)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Số điện thoại không hợp lệ.',
+      });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: 'Mật khẩu không hợp lệ.',
       });
     }
 
