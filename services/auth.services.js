@@ -57,3 +57,24 @@ export const loginUser = async ({ phone, password }) => {
     roleId: user.roleId,
   };
 };
+
+export const getUserById = async (id) => {
+  const user = await prisma.user.findUnique({
+    where: { id: parseInt(id) },
+  });
+
+  if (!user) {
+    throw new Error('Người dùng không tồn tại.');
+  }
+
+  return {
+    id: user.id,
+    fullName: user.fullName,
+    phone: user.phone,
+    roleId: user.roleId,
+    // Add mock fields for frontend UI
+    avatarUrl: "https://i.pravatar.cc/300",
+    totalRides: 0,
+    rating: 5.0,
+  };
+};
