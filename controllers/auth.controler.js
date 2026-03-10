@@ -123,3 +123,36 @@ export const login = async (req, res) => {
   }
 };
 
+export const getUserProfile = async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log("id người dùng: ", id)
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Vui lòng cung cấp id người dùng.',
+      });
+    }
+
+    const user = await authService.getUserById(id);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Lấy thông tin tài khoản thành công',
+      data: user,
+    });
+  } catch (error) {
+    if (error.message === 'Người dùng không tồn tại.') {
+      return res.status(404).json({
+        success: false,
+        message: error.message,
+      });
+    }
+
+    console.error('Lỗi getUserProfile controller:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Lỗi máy chủ nội bộ',
+    });
+  }
+};
