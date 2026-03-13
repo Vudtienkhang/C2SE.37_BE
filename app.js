@@ -12,11 +12,12 @@ app.use(express.urlencoded({ extended: true }));
 import authRouter from './routers/auth.router.js';
 import uploadRouter from './routers/upload.router.js';
 import addressRouter from './routers/address.router.js';
+import adminRouter from './routers/admin.router.js';
 
 app.use('/api/auth', authRouter);
-app.use('/api/auth', uploadRouter);
+app.use('/api/auth/upload', uploadRouter);
 app.use('/api/addresses', addressRouter);
-
+app.use('/api/admin', adminRouter);
 // Base route
 app.get('/', (req, res) => {
   res.send('API is running...');
