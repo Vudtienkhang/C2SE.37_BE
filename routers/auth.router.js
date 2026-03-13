@@ -8,7 +8,13 @@ router.post('/register', authController.register);
 // Route POST /api/auth/login
 router.post('/login', authController.login);
 
+import multer from 'multer';
+
+// Cấu hình multer để lưu file dưới dạng memory buffer
+const upload = multer({ storage: multer.memoryStorage() });
+
 // Route GET /api/auth/profile/:id
 router.get('/profile/:id', authController.getUserProfile);
+
 
 export default router;
