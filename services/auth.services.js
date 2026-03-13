@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { supabase } from '../lib/supabase.js';
 
 const prisma = new PrismaClient();
 
@@ -59,22 +60,66 @@ export const loginUser = async ({ phone, password }) => {
 };
 
 export const getUserById = async (id) => {
+  const numericId = parseInt(id, 10);
   const user = await prisma.user.findUnique({
-    where: { id: parseInt(id) },
+    where: { id: numericId },
   });
 
   if (!user) {
     throw new Error('Người dùng không tồn tại.');
   }
 
+  // Get dynamic fields like avatarUrl and totalRides from other tables if needed later.
+  const customer = await prisma.customer.findUnique({
+    where: { userId: numericId }
+  });
+
   return {
     id: user.id,
     fullName: user.fullName,
     phone: user.phone,
     roleId: user.roleId,
-    // Add mock fields for frontend UI
-    avatarUrl: "https://i.pravatar.cc/300",
+    avatarUrl: customer?.avatarUrl || "https://i.pravatar.cc/300",
     totalRides: 0,
     rating: 5.0,
   };
+};
+
+export const uploadUserAvatarToSupabase = async (id, fileBuffer, mimeType) => {
+  // 1. Tạo tên file độc nhất
+  const fileName = `${id}_${Date.now()}.png`;
+  const filePath = `${fileName}`;
+
+  // 2. Upload file dạng buffer lên Supabase Storage bucket 'avatars'
+  const { data, error } = await supabase.storage
+    .from('avatars')
+    .upload(filePath, fileBuffer, {
+      contentType: mimeType || 'image/png',
+      upsert: true,
+    });
+
+  if (error) {
+    console.error('Lỗi upload Supabase:', error);
+    throw new Error('Lỗi khi tải ảnh lên máy chủ.');
+  }
+
+  // 3. Lấy Public URL của ảnh vừa tạo
+  const { data: publicUrlData } = supabase.storage
+    .from('avatars')
+    .getPublicUrl(filePath);
+
+  const publicUrl = publicUrlData.publicUrl;
+
+  const numericId = parseInt(id, 10);
+  // 4. Cập nhật Public URL vào database của Customer
+  const updatedCustomer = await prisma.customer.upsert({
+    where: { userId: numericId },
+    update: { avatarUrl: publicUrl },
+    create: {
+      userId: numericId,
+      avatarUrl: publicUrl,
+    }
+  });
+
+  return publicUrl;
 };

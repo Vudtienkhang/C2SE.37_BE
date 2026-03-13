@@ -10,8 +10,10 @@ app.use(express.urlencoded({ extended: true }));
 
 // Routers
 import authRouter from './routers/auth.router.js';
+import uploadRouter from './routers/upload.router.js';
 
 app.use('/api/auth', authRouter);
+app.use('/api/auth', uploadRouter);
 
 // Base route
 app.get('/', (req, res) => {
