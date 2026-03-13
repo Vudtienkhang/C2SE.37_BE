@@ -9,6 +9,9 @@ export const uploadUserAvatarToSupabase = async (id, fileBuffer, mimeType) => {
   const filePath = `${fileName}`;
 
   // 2. Upload file dạng buffer lên Supabase Storage bucket 'avatars'
+  const { data: buckets } = await supabase.storage.listBuckets();
+  console.log('Danh sách bucket app thấy:', buckets?.map(b => b.name));
+
   const { data, error } = await supabase.storage
     .from('avatars')
     .upload(filePath, fileBuffer, {

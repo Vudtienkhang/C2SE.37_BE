@@ -4,6 +4,7 @@ export const uploadAvatar = async (req, res) => {
   try {
     const { id } = req.params;
     const file = req.file;
+    console.log("file", file);
 
     if (!id) {
       return res.status(400).json({ success: false, message: 'Thiếu ID người dùng.' });
