@@ -78,6 +78,7 @@ export const getUserById = async (id) => {
     id: user.id,
     fullName: user.fullName,
     phone: user.phone,
+    email: user.email,
     roleId: user.roleId,
     avatarUrl: customer?.avatarUrl || "https://i.pravatar.cc/300",
     totalRides: 0,
@@ -122,4 +123,62 @@ export const uploadUserAvatarToSupabase = async (id, fileBuffer, mimeType) => {
   });
 
   return publicUrl;
+};
+
+export const updateUser = async (id, { fullName, phone, email }) => {
+  const numericId = parseInt(id, 10);
+
+  // 1. Kiểm tra xem người dùng có tồn tại không
+  const user = await prisma.user.findUnique({
+    where: { id: numericId },
+  });
+
+  if (!user) {
+    throw new Error('Người dùng không tồn tại.');
+  }
+
+  // 2. Kiểm tra nếu phone hoặc email mới đã được sử dụng bởi người dùng khác
+  if (phone && phone !== user.phone) {
+    const existingPhone = await prisma.user.findUnique({
+      where: { phone },
+    });
+    if (existingPhone) {
+      throw new Error('Số điện thoại đã được sử dụng.');
+    }
+  }
+
+  if (email && email !== user.email) {
+    const existingEmail = await prisma.user.findUnique({
+      where: { email },
+    });
+    if (existingEmail) {
+      throw new Error('Email đã được sử dụng.');
+    }
+  }
+
+  // 3. Cập nhật thông tin
+  const updatedUser = await prisma.user.update({
+    where: { id: numericId },
+    data: {
+      fullName: fullName || user.fullName,
+      phone: phone || user.phone,
+      email: email || user.email,
+    },
+  });
+
+  // 4. Nếu là Customer, cập nhật cả fullName trong bảng Customer (nếu cần thiết theo business logic)
+  if (updatedUser.roleId === 3) {
+      await prisma.customer.update({
+          where: { userId: numericId },
+          data: { fullName: fullName || user.fullName }
+      });
+  }
+
+  return {
+    id: updatedUser.id,
+    fullName: updatedUser.fullName,
+    phone: updatedUser.phone,
+    email: updatedUser.email,
+    roleId: updatedUser.roleId,
+  };
 };

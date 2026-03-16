@@ -157,3 +157,68 @@ export const getUserProfile = async (req, res) => {
   }
 };
 
+export const updateProfile = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { fullName, phone, email } = req.body;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Vui lòng cung cấp id người dùng.',
+      });
+    }
+
+    // Validate email format if provided
+    if (email) {
+      const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Địa chỉ email không đúng định dạng.',
+        });
+      }
+    }
+
+    // Validate phone format if provided
+    if (phone) {
+      const phoneRegex = /^(0|84)(3|5|7|8|9)[0-9]{8}$/;
+      if (!phoneRegex.test(phone)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Số điện thoại không hợp lệ.',
+        });
+      }
+    }
+
+    const updatedUser = await authService.updateUser(id, { fullName, phone, email });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Cập nhật thông tin tài khoản thành công',
+      data: updatedUser,
+    });
+  } catch (error) {
+    if (error.message === 'Người dùng không tồn tại.') {
+      return res.status(404).json({
+        success: false,
+        message: error.message,
+      });
+    }
+
+    if (error.message === 'Số điện thoại đã được sử dụng.' || error.message === 'Email đã được sử dụng.') {
+      return res.status(409).json({
+        success: false,
+        message: error.message,
+      });
+    }
+
+    console.error('Lỗi updateProfile controller:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Lỗi máy chủ nội bộ',
+    });
+  }
+};
+
+
