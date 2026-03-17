@@ -134,7 +134,7 @@ model SavedAddress {
   customerId Int
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   
-  type    String  // "home", "work", "other"
+  type    String
   name    String  
   address String  
   lat     Float?
@@ -173,6 +173,23 @@ model Driver {
   createdAt DateTime @default(now())
 }
 
+/* ================= DOCUMENT TYPE ================= */
+
+model DocumentType {
+  id Int @id @default(autoincrement())
+
+  name        String
+  code        String @unique
+  description String?
+
+  isRequired Boolean @default(true)
+  isActive   Boolean @default(true)
+
+  documents DriverDocument[]
+
+  createdAt DateTime @default(now())
+}
+
 /* ================= DRIVER DOCUMENT ================= */
 
 model DriverDocument {
@@ -181,9 +198,11 @@ model DriverDocument {
   driverId Int
   driver   Driver @relation(fields: [driverId], references: [id], onDelete: Cascade)
 
-  documentType String
-  fileUrl      String
-  status       String
+  documentTypeId Int
+  documentType   DocumentType @relation(fields: [documentTypeId], references: [id])
+
+  fileUrl String
+  status  String
 
   reviewedById Int?
   reviewedBy   User? @relation(fields: [reviewedById], references: [id])
@@ -246,7 +265,6 @@ model Trip {
   tipTotalAmount       Float?
 
   status TripStatus @default(requested)
-
   paymentStatus PaymentStatus @default(pending)
 
   feeBreakdowns TripFeeBreakdown[]
@@ -356,9 +374,7 @@ model WalletTransaction {
   wallet   Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
 
   type WalletTransactionType
-
   amount Float
-
   description String?
 
   createdAt DateTime @default(now())
@@ -368,7 +384,6 @@ model WalletTransaction {
 
 model Voucher {
   id Int @id @default(autoincrement())
-
   code String @unique
 
   discountType  DiscountType
@@ -422,7 +437,6 @@ model Message {
   sender   User @relation(fields: [senderId], references: [id])
 
   messageType String
-
   content String?
   fileUrl String?
 
