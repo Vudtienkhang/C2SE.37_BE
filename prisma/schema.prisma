@@ -163,6 +163,8 @@ model Driver {
   totalTrips Int @default(0)
   isOnline   Boolean @default(false)
   status     DriverStatus @default(pending)
+  suspendedUntil DateTime?
+  reason         String?
 
   documents   DriverDocument[]
   trips       Trip[]
