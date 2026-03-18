@@ -14,12 +14,16 @@ import uploadRouter from './routers/upload.router.js';
 import addressRouter from './routers/address.router.js';
 import adminRouter from './routers/admin.router.js';
 import documentTypeRouter from './routers/document-type.router.js';
+import pricingRouter from './routers/pricingConfig.router.js';
+
 
 app.use('/api/auth', authRouter);
 app.use('/api/auth/upload', uploadRouter);
 app.use('/api/addresses', addressRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/document-types', documentTypeRouter);
+app.use('/api/pricing-configs', pricingRouter);
+
 // Base route
 app.get('/', (req, res) => {
   res.send('API is running...');
