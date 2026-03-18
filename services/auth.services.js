@@ -50,14 +50,21 @@ export const loginUser = async ({ phone, password }) => {
     throw new Error('Số điện thoại hoặc mật khẩu không chính xác.');
   }
 
-  // 4. Trả về thông tin người dùng (không trả về password)
+  // 4. Tìm thông tin tài xế nếu là driver
+  const driver = await prisma.driver.findUnique({
+    where: { userId: user.id }
+  });
+
+  // 5. Trả về thông tin người dùng
   return {
     id: user.id,
     fullName: user.fullName,
     phone: user.phone,
     roleId: user.roleId,
+    driver: driver ? { id: driver.id, status: driver.status } : null
   };
 };
+
 
 export const getUserById = async (id) => {
   const numericId = parseInt(id, 10);
@@ -69,8 +76,11 @@ export const getUserById = async (id) => {
     throw new Error('Người dùng không tồn tại.');
   }
 
-  // Get dynamic fields like avatarUrl and totalRides from other tables if needed later.
   const customer = await prisma.customer.findUnique({
+    where: { userId: numericId }
+  });
+
+  const driver = await prisma.driver.findUnique({
     where: { userId: numericId }
   });
 
@@ -83,8 +93,10 @@ export const getUserById = async (id) => {
     avatarUrl: customer?.avatarUrl || "https://i.pravatar.cc/300",
     totalRides: 0,
     rating: 5.0,
+    driver: driver ? { id: driver.id, status: driver.status } : null
   };
 };
+
 
 export const uploadUserAvatarToSupabase = async (id, fileBuffer, mimeType) => {
   // 1. Tạo tên file độc nhất
