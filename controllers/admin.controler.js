@@ -65,3 +65,99 @@ export const logoutController = async (req, res) => {
         });
     }
 };
+
+export const getAllDrivers = async (req, res) => {
+    try {
+        const drivers = await authAdmin.getAllDrivers();
+        return res.status(200).json({
+            success: true,
+            data: drivers
+        });
+    } catch (error) {
+        console.error('Lỗi getAllDrivers:', error);
+        return res.status(500).json({ success: false, message: 'Lỗi máy chủ nội bộ' });
+    }
+};
+
+export const updateDriverStatus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body;
+        const driver = await authAdmin.updateDriverStatus(id, status);
+        return res.status(200).json({
+            success: true,
+            message: 'Cập nhật trạng thái tài xế thành công',
+            data: driver
+        });
+    } catch (error) {
+        console.error('Lỗi updateDriverStatus:', error);
+        return res.status(500).json({ success: false, message: 'Lỗi máy chủ nội bộ' });
+    }
+};
+
+export const updateDocumentStatus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status, reviewedById } = req.body;
+        const doc = await authAdmin.updateDocumentStatus(id, status, reviewedById);
+        return res.status(200).json({
+            success: true,
+            message: 'Cập nhật trạng thái tài liệu thành công',
+            data: doc
+        });
+    } catch (error) {
+        console.error('Lỗi updateDocumentStatus:', error);
+        return res.status(500).json({ success: false, message: 'Lỗi máy chủ nội bộ' });
+    }
+};
+
+export const lockDriver = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { hours, reason } = req.body;
+        const driver = await authAdmin.lockDriver(id, hours, reason);
+        return res.status(200).json({
+            success: true,
+            message: `Tài xế đã bị khóa ${hours ? `trong ${hours} giờ` : 'vĩnh viễn'}`,
+            data: driver
+        });
+    } catch (error) {
+        console.error('Lỗi lockDriver:', error);
+        return res.status(500).json({ success: false, message: 'Lỗi máy chủ nội bộ' });
+    }
+};
+
+export const unlockDriver = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const driver = await authAdmin.unlockDriver(id);
+        return res.status(200).json({
+            success: true,
+            message: 'Mở khóa tài xế thành công',
+            data: driver
+        });
+    } catch (error) {
+        console.error('Lỗi unlockDriver:', error);
+        return res.status(500).json({ success: false, message: 'Lỗi máy chủ nội bộ' });
+    }
+};
+
+export const createDriver = async (req, res) => {
+    try {
+        const result = await authAdmin.createDriverAdmin(req.body);
+        return res.status(201).json({
+            success: true,
+            message: 'Tạo tài xế mới thành công',
+            data: result
+        });
+    } catch (error) {
+        if (error.code === 'P2002') {
+            return res.status(400).json({
+                success: false,
+                message: 'Số điện thoại, Email, CCCD hoặc Số bằng lái đã tồn tại trên hệ thống.'
+            });
+        }
+        console.error('Lỗi createDriver:', error);
+        return res.status(500).json({ success: false, message: 'Lỗi máy chủ nội bộ' });
+    }
+};

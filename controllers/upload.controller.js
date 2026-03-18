@@ -30,3 +30,32 @@ export const uploadAvatar = async (req, res) => {
     });
   }
 };
+
+export const uploadDriverDocument = async (req, res) => {
+  try {
+    const { userId, documentTypeId } = req.params;
+    const file = req.file;
+
+    if (!userId || !documentTypeId) {
+      return res.status(400).json({ success: false, message: 'Thiếu userId hoặc documentTypeId.' });
+    }
+
+    if (!file) {
+      return res.status(400).json({ success: false, message: 'Không tìm thấy file tài liệu.' });
+    }
+
+    const doc = await uploadService.uploadDriverDocumentToSupabase(userId, documentTypeId, file.buffer, file.mimetype);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Tải lên tài liệu thành công',
+      data: doc,
+    });
+  } catch (error) {
+    console.error('Lỗi uploadDriverDocument controller:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Lỗi máy chủ nội bộ',
+    });
+  }
+};

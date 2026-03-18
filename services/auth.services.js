@@ -182,3 +182,47 @@ export const updateUser = async (id, { fullName, phone, email }) => {
     roleId: updatedUser.roleId,
   };
 };
+
+export const registerDriver = async ({ userId, fullName, cccdNumber, licenseNumber, licenseType }) => {
+  const numericUserId = parseInt(userId, 10);
+
+  // 1. Kiểm tra người dùng
+  const user = await prisma.user.findUnique({
+    where: { id: numericUserId },
+  });
+
+  if (!user) {
+    throw new Error('Người dùng không tồn tại.');
+  }
+
+  // 2. Chuyển role sang Driver (roleId = 2)
+  await prisma.user.update({
+    where: { id: numericUserId },
+    data: { 
+      roleId: 2,
+      fullName: fullName || user.fullName 
+    },
+  });
+
+  // 3. Tạo hoặc cập nhật thông tin trong bảng Driver
+  const driver = await prisma.driver.upsert({
+    where: { userId: numericUserId },
+    update: {
+      fullName: fullName || user.fullName,
+      cccdNumber,
+      licenseNumber,
+      licenseType,
+      status: 'pending',
+    },
+    create: {
+      userId: numericUserId,
+      fullName: fullName || user.fullName,
+      cccdNumber,
+      licenseNumber,
+      licenseType,
+      status: 'pending',
+    },
+  });
+
+  return driver;
+};

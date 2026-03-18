@@ -44,3 +44,61 @@ export const uploadUserAvatarToSupabase = async (id, fileBuffer, mimeType) => {
 
   return publicUrl;
 };
+
+export const uploadDriverDocumentToSupabase = async (userId, documentTypeId, fileBuffer, mimeType) => {
+  const numericUserId = parseInt(userId, 10);
+  const numericDocTypeId = parseInt(documentTypeId, 10);
+
+  // 1. Tìm thông tin Driver
+  const driver = await prisma.driver.findUnique({
+    where: { userId: numericUserId },
+  });
+
+  if (!driver) {
+    throw new Error('Tài xế không tồn tại. Vui lòng hoàn tất thông tin cá nhân trước.');
+  }
+
+  // 2. Upload file lên bucket 'driver_documents'
+  const fileName = `driver_${driver.id}_type_${numericDocTypeId}_${Date.now()}.png`;
+  
+  const { error } = await supabase.storage
+    .from('driver_document')
+    .upload(fileName, fileBuffer, {
+      contentType: mimeType || 'image/png',
+      upsert: true,
+    });
+
+  if (error) {
+    console.error('Lỗi upload tài liệu Supabase:', error);
+    // Nếu bucket chưa tồn tại, có thể báo lỗi hoặc thử tự tạo (tùy quyền hạn)
+    throw new Error('Lỗi khi tải tài liệu lên máy chủ.');
+  }
+
+  // 3. Lấy URL
+  const { data: publicUrlData } = supabase.storage
+    .from('driver_document')
+    .getPublicUrl(fileName);
+
+  const fileUrl = publicUrlData.publicUrl;
+
+  // 4. Lưu vào bảng DriverDocument
+  const doc = await prisma.driverDocument.upsert({
+    where: {
+      // Vì không có unique constraint trên (driverId, documentTypeId), 
+      // ta nên tạo mới hoặc tìm bản ghi cũ theo tổ hợp này nếu muốn cập nhật.
+      // Tạm thời dùng findFirst để kiểm tra.
+      id: (await prisma.driverDocument.findFirst({
+        where: { driverId: driver.id, documentTypeId: numericDocTypeId }
+      }))?.id || -1
+    },
+    update: { fileUrl, status: 'pending' },
+    create: {
+      driverId: driver.id,
+      documentTypeId: numericDocTypeId,
+      fileUrl,
+      status: 'pending',
+    }
+  });
+
+  return doc;
+};
