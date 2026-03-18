@@ -221,4 +221,37 @@ export const updateProfile = async (req, res) => {
   }
 };
 
+export const registerDriver = async (req, res) => {
+  try {
+    const { userId, fullName, cccdNumber, licenseNumber, licenseType } = req.body;
+
+    if (!userId || !cccdNumber || !licenseNumber) {
+      return res.status(400).json({
+        success: false,
+        message: 'Vui lòng cung cấp đầy đủ: userId, cccdNumber và licenseNumber.',
+      });
+    }
+
+    const driver = await authService.registerDriver({
+      userId,
+      fullName,
+      cccdNumber,
+      licenseNumber,
+      licenseType
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Đăng ký thông tin tài xế thành công. Vui lòng tải lên tài liệu để hoàn tất.',
+      data: driver,
+    });
+  } catch (error) {
+    console.error('Lỗi registerDriver controller:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Lỗi máy chủ nội bộ',
+    });
+  }
+};
+
 

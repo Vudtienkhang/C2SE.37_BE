@@ -7,6 +7,8 @@ const router = Router();
 router.post('/register', authController.register);
 // Route POST /api/auth/login
 router.post('/login', authController.login);
+// Route POST /api/auth/register-driver
+router.post('/register-driver', authController.registerDriver);
 
 import multer from 'multer';
 
