@@ -13,6 +13,7 @@ router.post('/logout', verifyAdminToken, adminController.logoutController);
 
 // --- Quản lý khách hàng ---
 router.get('/customers', verifyAdminToken, adminCustomerController.getCustomersInfo);
+router.get('/customers/stats', verifyAdminToken, adminCustomerController.getCustomerStats);
 router.get('/customers/:id', verifyAdminToken, adminCustomerController.getCustomerDetail);
 router.put('/customers/:id/status', verifyAdminToken, adminCustomerController.updateCustomerStatus);
 // Quản lý tài xế
