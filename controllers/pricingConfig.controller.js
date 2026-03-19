@@ -39,7 +39,7 @@ export const createPricingConfig = async (req, res) => {
       data: {
         ...data,
         perKmPrice: parseFloat(data.perKmPrice),
-        perMinPrice: parseFloat(data.perMinPrice),
+        holidayMultiplier: parseFloat(data.holidayMultiplier),
         nightMultiplier: parseFloat(data.nightMultiplier),
         rushHourMultiplier: parseFloat(data.rushHourMultiplier),
         badWeatherFee: parseFloat(data.badWeatherFee),
@@ -74,7 +74,7 @@ export const updatePricingConfig = async (req, res) => {
       data: {
         ...data,
         perKmPrice: data.perKmPrice ? parseFloat(data.perKmPrice) : undefined,
-        perMinPrice: data.perMinPrice ? parseFloat(data.perMinPrice) : undefined,
+        holidayMultiplier: data.holidayMultiplier ? parseFloat(data.holidayMultiplier) : undefined,
         nightMultiplier: data.nightMultiplier ? parseFloat(data.nightMultiplier) : undefined,
         rushHourMultiplier: data.rushHourMultiplier ? parseFloat(data.rushHourMultiplier) : undefined,
         badWeatherFee: data.badWeatherFee ? parseFloat(data.badWeatherFee) : undefined,

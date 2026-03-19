@@ -14,6 +14,7 @@ export const calculateTripPrice = async ({
   vehicleType,
   isNight,
   isRushHour,
+  isHoliday,
   weather
 }) => {
   if (distanceKm < 0 || durationMin < 0) {
@@ -33,9 +34,9 @@ export const calculateTripPrice = async ({
   }
 
   const distanceFare = distanceKm * config.perKmPrice;
-  const timeFare = durationMin * config.perMinPrice;
+  const timeFare = 0; // Removing per minute cost as requested
 
-  let total = distanceFare + timeFare;
+  let total = distanceFare;
 
   if (isNight) {
     total *= config.nightMultiplier;
@@ -43,6 +44,10 @@ export const calculateTripPrice = async ({
 
   if (isRushHour) {
     total *= config.rushHourMultiplier;
+  }
+
+  if (isHoliday) {
+    total *= config.holidayMultiplier;
   }
 
   let weatherFee = 0;
