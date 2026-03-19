@@ -15,8 +15,10 @@ const getDistance = (lat1, lon1, lat2, lon2) => {
 
 export const findNearbyDrivers = async (req, res) => {
   const { lat, lng, radius = 5 } = req.query; // Radius mặc định 5km
+  console.log(`[BACKEND] Finding nearby drivers at: lat=${lat}, lng=${lng}, radius=${radius}`);
 
   if (!lat || !lng) {
+    console.warn(`[BACKEND] Missing lat or lng in nearby drivers request: lat=${lat}, lng=${lng}`);
     return res.status(400).json({ message: 'Vui lòng cung cấp tọa độ lat và lng' });
   }
 
