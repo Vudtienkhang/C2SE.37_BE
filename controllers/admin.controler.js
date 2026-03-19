@@ -161,3 +161,34 @@ export const createDriver = async (req, res) => {
         return res.status(500).json({ success: false, message: 'Lỗi máy chủ nội bộ' });
     }
 };
+
+export const getDriverRanks = async (req, res) => {
+    try {
+        const ranks = await authAdmin.getDriverRanks();
+        return res.status(200).json({ success: true, data: ranks });
+    } catch (error) {
+        console.error('Lỗi getDriverRanks:', error);
+        return res.status(500).json({ success: false, message: 'Lỗi máy chủ nội bộ' });
+    }
+};
+
+export const updateDriverRank = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await authAdmin.updateDriverRank(id, req.body);
+        return res.status(200).json({ success: true, message: 'Cập nhật thành công', data: result });
+    } catch (error) {
+        console.error('Lỗi updateDriverRank:', error);
+        return res.status(500).json({ success: false, message: 'Lỗi máy chủ nội bộ' });
+    }
+};
+
+export const getDriverStats = async (req, res) => {
+    try {
+        const stats = await authAdmin.getDriverStats();
+        return res.status(200).json({ success: true, data: stats });
+    } catch (error) {
+        console.error('Lỗi getDriverStats:', error);
+        return res.status(500).json({ success: false, message: 'Lỗi máy chủ nội bộ' });
+    }
+};

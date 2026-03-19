@@ -153,3 +153,31 @@ export const createDriverAdmin = async (data) => {
         return { user, driver };
     });
 };
+
+export const getDriverRanks = async () => {
+    return await prisma.driverRank.findMany({
+        include: {
+            _count: {
+                select: { drivers: true }
+            }
+        },
+        orderBy: { minTrips: 'asc' }
+    });
+};
+
+export const updateDriverRank = async (id, data) => {
+    return await prisma.driverRank.update({
+        where: { id: parseInt(id) },
+        data: {
+            ...(data.driverRate !== undefined && { driverRate: parseFloat(data.driverRate) }),
+            ...(data.platformRate !== undefined && { platformRate: parseFloat(data.platformRate) }),
+            ...(data.acceptanceRate !== undefined && { acceptanceRate: data.acceptanceRate }),
+            ...(data.minTrips !== undefined && { minTrips: parseInt(data.minTrips) })
+        }
+    });
+};
+
+export const getDriverStats = async () => {
+    const totalDrivers = await prisma.driver.count();
+    return { totalDrivers };
+};
