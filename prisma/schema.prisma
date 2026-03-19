@@ -89,6 +89,7 @@ model Driver {
   rankId         Int?
   user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   rank           DriverRank?      @relation(fields: [rankId], references: [id])
+user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   documents      DriverDocument[]
   reviews        Review[]
   trips          Trip[]
@@ -153,6 +154,7 @@ model Trip {
   durationEstimateMin Int?
   priceEstimate       Float?
   finalPrice          Float?
+  routePolyline       String?
   tipTotalAmount      Float?
   status              TripStatus         @default(requested)
   paymentStatus       PaymentStatus      @default(pending)
@@ -242,6 +244,11 @@ model Voucher {
   code          String         @unique
   discountType  DiscountType
   discountValue Float
+  maxDiscount   Float?
+  minOrderValue Float?
+  usageLimit    Int?
+  usedCount     Int            @default(0)
+  target        VoucherTarget  @default(all)
   startDate     DateTime
   endDate       DateTime?
   isActive      Boolean        @default(true)
@@ -377,6 +384,87 @@ enum PaymentStatus {
 enum DiscountType {
   percent
   fixed
+}
+
+enum WalletTransactionType {
+  credit
+  debit
+  commission
+  refund
+}
+
+enum DisputeStatus {
+  open
+  investigating
+  resolved
+}
+
+}
+
+model TipLog {
+  id          Int      @id @default(autoincrement())
+  tipId       Int
+  performedBy Int
+  action      String
+  createdAt   DateTime @default(now())
+  performer   User     @relation(fields: [performedBy], references: [id])
+  tip         TripTip  @relation(fields: [tipId], references: [id], onDelete: Cascade)
+}
+
+model PricingConfig {
+  id                 Int      @id @default(autoincrement())
+  name               String   @unique
+  vehicleType        String?
+  perKmPrice         Float    @default(12000)
+  nightMultiplier    Float    @default(1.3)
+  rushHourMultiplier Float    @default(1.2)
+  holidayMultiplier  Float    @default(1.2)
+  badWeatherFee      Float    @default(0)
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+enum UserStatus {
+  active
+  banned
+  suspended
+}
+
+enum DriverStatus {
+  pending
+  approved
+  rejected
+  suspended
+}
+enum TripStatus {
+  requested
+  accepted
+  started
+  completed
+  cancelled
+}
+
+enum PaymentStatus {
+  pending
+  success
+  failed
+  refunded
+}
+
+enum DiscountType {
+  percent
+  fixed
+}
+
+enum VoucherTarget {
+  all
+  new_customer
+  old_customer
+  loyal_customer
+  vip_customer
+  customer
+  driver
 }
 
 enum WalletTransactionType {

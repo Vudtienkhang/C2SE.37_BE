@@ -101,3 +101,39 @@ export const changeCustomerStatus = async (userId, status) => {
 
     return user;
 };
+
+/**
+ * Lấy thống kê khách hàng cho Admin Dashboard
+ */
+export const getCustomerStats = async () => {
+    // Ngày đầu tháng hiện tại
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const [totalCustomers, activeCustomers, newThisMonth] = await Promise.all([
+        // 1. Tổng khách hàng
+        prisma.user.count({
+            where: { roleId: 3 }
+        }),
+        // 2. Khách hàng đang hoạt động
+        prisma.user.count({
+            where: { roleId: 3, status: 'active' }
+        }),
+        // 3. Khách hàng mới tháng này
+        prisma.user.count({
+            where: { 
+                roleId: 3,
+                createdAt: {
+                    gte: startOfMonth
+                }
+            }
+        })
+    ]);
+
+    return {
+        totalCustomers,
+        activeCustomers,
+        newThisMonth
+    };
+};

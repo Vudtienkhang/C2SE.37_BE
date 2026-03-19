@@ -60,3 +60,20 @@ export const updateCustomerStatus = async (req, res) => {
         });
     }
 };
+
+export const getCustomerStats = async (req, res) => {
+    try {
+        const stats = await adminCustomerService.getCustomerStats();
+        res.status(200).json({
+            success: true,
+            data: stats,
+        });
+    } catch (error) {
+        console.error('Error getting customer stats: ', error);
+        res.status(500).json({
+            success: false,
+            message: 'Ðã x?y ra l?i khi l?y th?ng kê khách hàng.',
+        });
+    }
+};
+

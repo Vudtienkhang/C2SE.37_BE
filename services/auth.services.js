@@ -19,18 +19,35 @@ export const registerUser = async ({ fullName, phone, password, roleId }) => {
   const hashedPassword = await bcrypt.hash(password, salt);
 
   // 3. Tạo người dùng mới trong database
-  const newUser = await prisma.user.create({
-    data: {
-      fullName,
-      phone,
-      password: hashedPassword,
-      roleId: roleId || 3, 
+  const newUser = await prisma.$transaction(async (tx) => {
+    const user = await tx.user.create({
+      data: {
+        fullName,
+        phone,
+        password: hashedPassword,
+        roleId: roleId || 3,
+      },
+    });
 
-    },
+    // Nếu là Customer (role 3), tự động tạo bản ghi trong bảng Customer
+    if (user.roleId === 3) {
+      await tx.customer.create({
+        data: {
+          userId: user.id,
+          fullName: user.fullName,
+        },
+      });
+    }
+
+    return user;
   });
 
   return newUser;
 };
+
+import jwt from 'jsonwebtoken';
+
+const JWT_SECRET = process.env.JWT_SECRET || 'safeway_super_secret_key';
 
 export const loginUser = async ({ phone, password }) => {
   // 1. Tìm người dùng theo số điện thoại
@@ -50,14 +67,31 @@ export const loginUser = async ({ phone, password }) => {
     throw new Error('Số điện thoại hoặc mật khẩu không chính xác.');
   }
 
-  // 4. Trả về thông tin người dùng (không trả về password)
+  // 4. Tìm thông tin tài xế nếu là driver
+  const driver = await prisma.driver.findUnique({
+    where: { userId: user.id }
+  });
+
+  // 5. Tạo token
+  const token = jwt.sign(
+    { id: user.id, phone: user.phone, roleId: user.roleId },
+    JWT_SECRET,
+    { expiresIn: '7d' }
+  );
+
+  // 6. Trả về thông tin người dùng và token
   return {
-    id: user.id,
-    fullName: user.fullName,
-    phone: user.phone,
-    roleId: user.roleId,
+    user: {
+      id: user.id,
+      fullName: user.fullName,
+      phone: user.phone,
+      roleId: user.roleId,
+      driver: driver ? { id: driver.id, status: driver.status } : null
+    },
+    token
   };
 };
+
 
 export const getUserById = async (id) => {
   const numericId = parseInt(id, 10);
@@ -69,8 +103,11 @@ export const getUserById = async (id) => {
     throw new Error('Người dùng không tồn tại.');
   }
 
-  // Get dynamic fields like avatarUrl and totalRides from other tables if needed later.
   const customer = await prisma.customer.findUnique({
+    where: { userId: numericId }
+  });
+
+  const driver = await prisma.driver.findUnique({
     where: { userId: numericId }
   });
 
@@ -83,8 +120,10 @@ export const getUserById = async (id) => {
     avatarUrl: customer?.avatarUrl || "https://i.pravatar.cc/300",
     totalRides: 0,
     rating: 5.0,
+    driver: driver ? { id: driver.id, status: driver.status } : null
   };
 };
+
 
 export const uploadUserAvatarToSupabase = async (id, fileBuffer, mimeType) => {
   // 1. Tạo tên file độc nhất
@@ -168,10 +207,10 @@ export const updateUser = async (id, { fullName, phone, email }) => {
 
   // 4. Nếu là Customer, cập nhật cả fullName trong bảng Customer (nếu cần thiết theo business logic)
   if (updatedUser.roleId === 3) {
-      await prisma.customer.update({
-          where: { userId: numericId },
-          data: { fullName: fullName || user.fullName }
-      });
+    await prisma.customer.update({
+      where: { userId: numericId },
+      data: { fullName: fullName || user.fullName }
+    });
   }
 
   return {
@@ -198,9 +237,9 @@ export const registerDriver = async ({ userId, fullName, cccdNumber, licenseNumb
   // 2. Chuyển role sang Driver (roleId = 2)
   await prisma.user.update({
     where: { id: numericUserId },
-    data: { 
+    data: {
       roleId: 2,
-      fullName: fullName || user.fullName 
+      fullName: fullName || user.fullName
     },
   });
 
