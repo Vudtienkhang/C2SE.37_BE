@@ -37,3 +37,32 @@ export const verifyAdminToken = (req, res, next) => {
         });
     }
 };
+
+export const verifyToken = (req, res, next) => {
+    try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return res.status(401).json({
+                success: false,
+                message: 'Không tìm thấy Access Token. Vui lòng đăng nhập.',
+            });
+        }
+
+        const token = authHeader.split(' ')[1];
+        const decoded = jwt.verify(token, JWT_SECRET);
+
+        req.user = decoded; // { id, roleId, ... }
+        next();
+    } catch (error) {
+        if (error.name === 'TokenExpiredError') {
+            return res.status(401).json({
+                success: false,
+                message: 'Token đã hết hạn. Vui lòng đăng nhập lại.',
+            });
+        }
+        return res.status(401).json({
+            success: false,
+            message: 'Token không hợp lệ hoặc đã bị thay đổi.',
+        });
+    }
+};
