@@ -93,7 +93,7 @@ export const login = async (req, res) => {
     }
 
     // Gọi đến tầng service để xử lý logic
-    const user = await authService.loginUser({ phone, password });
+    const { user, token } = await authService.loginUser({ phone, password });
 
     // Trả về response thành công (không trả về password)
     return res.status(200).json({
@@ -104,6 +104,7 @@ export const login = async (req, res) => {
         fullName: user.fullName,
         phone: user.phone,
         roleId: user.roleId,
+        token: token,
       },
     });
   } catch (error) {

@@ -19,18 +19,35 @@ export const registerUser = async ({ fullName, phone, password, roleId }) => {
   const hashedPassword = await bcrypt.hash(password, salt);
 
   // 3. Tạo người dùng mới trong database
-  const newUser = await prisma.user.create({
-    data: {
-      fullName,
-      phone,
-      password: hashedPassword,
-      roleId: roleId || 3, 
+  const newUser = await prisma.$transaction(async (tx) => {
+    const user = await tx.user.create({
+      data: {
+        fullName,
+        phone,
+        password: hashedPassword,
+        roleId: roleId || 3,
+      },
+    });
 
-    },
+    // Nếu là Customer (role 3), tự động tạo bản ghi trong bảng Customer
+    if (user.roleId === 3) {
+      await tx.customer.create({
+        data: {
+          userId: user.id,
+          fullName: user.fullName,
+        },
+      });
+    }
+
+    return user;
   });
 
   return newUser;
 };
+
+import jwt from 'jsonwebtoken';
+
+const JWT_SECRET = process.env.JWT_SECRET || 'safeway_super_secret_key';
 
 export const loginUser = async ({ phone, password }) => {
   // 1. Tìm người dùng theo số điện thoại
@@ -55,13 +72,23 @@ export const loginUser = async ({ phone, password }) => {
     where: { userId: user.id }
   });
 
-  // 5. Trả về thông tin người dùng
+  // 5. Tạo token
+  const token = jwt.sign(
+    { id: user.id, phone: user.phone, roleId: user.roleId },
+    JWT_SECRET,
+    { expiresIn: '7d' }
+  );
+
+  // 6. Trả về thông tin người dùng và token
   return {
-    id: user.id,
-    fullName: user.fullName,
-    phone: user.phone,
-    roleId: user.roleId,
-    driver: driver ? { id: driver.id, status: driver.status } : null
+    user: {
+      id: user.id,
+      fullName: user.fullName,
+      phone: user.phone,
+      roleId: user.roleId,
+      driver: driver ? { id: driver.id, status: driver.status } : null
+    },
+    token
   };
 };
 
@@ -180,10 +207,10 @@ export const updateUser = async (id, { fullName, phone, email }) => {
 
   // 4. Nếu là Customer, cập nhật cả fullName trong bảng Customer (nếu cần thiết theo business logic)
   if (updatedUser.roleId === 3) {
-      await prisma.customer.update({
-          where: { userId: numericId },
-          data: { fullName: fullName || user.fullName }
-      });
+    await prisma.customer.update({
+      where: { userId: numericId },
+      data: { fullName: fullName || user.fullName }
+    });
   }
 
   return {
@@ -210,9 +237,9 @@ export const registerDriver = async ({ userId, fullName, cccdNumber, licenseNumb
   // 2. Chuyển role sang Driver (roleId = 2)
   await prisma.user.update({
     where: { id: numericUserId },
-    data: { 
+    data: {
       roleId: 2,
-      fullName: fullName || user.fullName 
+      fullName: fullName || user.fullName
     },
   });
 

@@ -8,6 +8,12 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Request Logger
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+});
+
 // Routers
 import authRouter from './routers/auth.router.js';
 import uploadRouter from './routers/upload.router.js';
@@ -19,6 +25,8 @@ import driverScanRouter from './routers/driver-scan.router.js';
 import voucherRouter from './routers/voucher.router.js';
 
 
+import tripRouter from './routers/trip.router.js';
+import customerRouter from './routers/customer.router.js';
 
 app.use('/api/auth', authRouter);
 app.use('/api/auth/upload', uploadRouter);
@@ -28,6 +36,8 @@ app.use('/api/document-types', documentTypeRouter);
 app.use('/api/pricing-configs', pricingRouter);
 app.use('/api/driver-scan', driverScanRouter);
 app.use('/api/vouchers', voucherRouter);
+app.use('/api/trips', tripRouter);
+app.use('/api/customers', customerRouter);
 
 
 // Base route
