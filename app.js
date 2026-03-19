@@ -16,6 +16,7 @@ import adminRouter from './routers/admin.router.js';
 import documentTypeRouter from './routers/document-type.router.js';
 import pricingRouter from './routers/pricingConfig.router.js';
 import driverScanRouter from './routers/driver-scan.router.js';
+import voucherRouter from './routers/voucher.router.js';
 
 
 
@@ -26,6 +27,7 @@ app.use('/api/admin', adminRouter);
 app.use('/api/document-types', documentTypeRouter);
 app.use('/api/pricing-configs', pricingRouter);
 app.use('/api/driver-scan', driverScanRouter);
+app.use('/api/vouchers', voucherRouter);
 
 
 // Base route
