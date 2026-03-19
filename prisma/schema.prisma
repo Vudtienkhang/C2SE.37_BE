@@ -1,546 +1,421 @@
 generator client {
-provider = "prisma-client-js"
+  provider = "prisma-client-js"
 }
 
 datasource db {
-provider = "postgresql"
-url      = env("DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
-
-/* ================= ENUMS ================= */
-
-enum UserStatus {
-active
-banned
-suspended
-}
-
-enum DriverStatus {
-pending
-approved
-rejected
-suspended
-}
-
-enum TripStatus {
-requested
-accepted
-started
-completed
-cancelled
-}
-
-enum PaymentStatus {
-pending
-success
-failed
-refunded
-}
-
-enum DiscountType {
-percent
-fixed
-}
-
-enum WalletTransactionType {
-credit
-debit
-commission
-refund
-}
-
-enum DisputeStatus {
-open
-investigating
-resolved
-}
-
-enum TipStatus {
-success
-failed
-refunded
-}
-
-/* ================= ROLE ================= */
 
 model Role {
-id    Int    @id @default(autoincrement())
-name  String @unique
-
-users User[]
-
-createdAt DateTime @default(now())
-updatedAt DateTime @updatedAt
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  users     User[]
 }
-
-/* ================= USER ================= */
 
 model User {
-id          Int    @id @default(autoincrement())
-fullName    String?
-phone       String @unique
-email       String? @unique
-password    String
-
-roleId Int
-role   Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
-
-status      UserStatus @default(active)
-isVerified  Boolean    @default(false)
-lastLoginAt DateTime?
-
-customer Customer?
-driver   Driver?
-wallet   Wallet?
-
-messages Message[]
-
-disputesCreated  Dispute[] @relation("CreatedBy")
-disputesResolved Dispute[] @relation("ResolvedBy")
-
-driverDocumentsReviewed DriverDocument[]
-voucherUsages           VoucherUsage[]
-tipLogs                 TipLog[]
-
-createdAt DateTime @default(now())
-updatedAt DateTime @updatedAt
+  id                      Int              @id @default(autoincrement())
+  fullName                String?
+  phone                   String           @unique
+  avatarUrl               String?
+  email                   String?          @unique
+  password                String
+  roleId                  Int
+  status                  UserStatus       @default(active)
+  isVerified              Boolean          @default(false)
+  lastLoginAt             DateTime?
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+  customer                Customer?
+  disputesCreated         Dispute[]        @relation("CreatedBy")
+  disputesResolved        Dispute[]        @relation("ResolvedBy")
+  driver                  Driver?
+  driverDocumentsReviewed DriverDocument[]
+  messages                Message[]
+  tipLogs                 TipLog[]
+  role                    Role             @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  voucherUsages           VoucherUsage[]
+  wallet                  Wallet?
 }
-
-/* ================= CUSTOMER ================= */
 
 model Customer {
-id Int @id @default(autoincrement())
-
-userId Int @unique
-user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-fullName  String?
-avatarUrl String?
-
-vehicles CustomerVehicle[]
-trips    Trip[]
-reviews  Review[]
-tips     TripTip[]
-savedAddresses SavedAddress[]
-
-createdAt DateTime @default(now())
+  id             Int               @id @default(autoincrement())
+  userId         Int               @unique
+  fullName       String?
+  avatarUrl      String?
+  createdAt      DateTime          @default(now())
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vehicles       CustomerVehicle[]
+  reviews        Review[]
+  savedAddresses SavedAddress[]
+  trips          Trip[]
+  tips           TripTip[]
 }
-
-/* ================= SAVED ADDRESS ================= */
 
 model SavedAddress {
-id Int @id @default(autoincrement())
-
-customerId Int
-customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-
-type    String
-name    String
-address String
-lat     Float?
-lng     Float?
-
-createdAt DateTime @default(now())
-updatedAt DateTime @updatedAt
+  id         Int      @id @default(autoincrement())
+  customerId Int
+  type       String
+  name       String
+  address    String
+  lat        Float?
+  lng        Float?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 }
-
-/* ================= DRIVER ================= */
 
 model Driver {
-id Int @id @default(autoincrement())
-
-userId Int @unique
-user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-fullName  String?
-avatarUrl String?
-
-cccdNumber    String @unique
-licenseNumber String @unique
-licenseType   String?
-
-ratingAvg  Float?
-totalTrips Int @default(0)
-isOnline   Boolean @default(false)
-status     DriverStatus @default(pending)
-
-suspendedUntil DateTime?
-reason         String?
-
-documents   DriverDocument[]
-trips       Trip[]
-reviews     Review[]
-tips        TripTip[]
-commissions TripCommission[]
-
-createdAt DateTime @default(now())
+  id             Int              @id @default(autoincrement())
+  userId         Int              @unique
+  fullName       String?
+  avatarUrl      String?
+  cccdNumber     String           @unique
+  licenseNumber  String           @unique
+  licenseType    String?
+  ratingAvg      Float?
+  totalTrips     Int              @default(0)
+  isOnline       Boolean          @default(false)
+  status         DriverStatus     @default(pending)
+  suspendedUntil DateTime?
+  reason         String?
+  createdAt      DateTime         @default(now())
+  currentLat     Float?
+  currentLng     Float?
+  isBusy         Boolean          @default(false)
+  lastLocationAt DateTime?
+  rankId         Int?
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rank           DriverRank?      @relation(fields: [rankId], references: [id])
+  documents      DriverDocument[]
+  reviews        Review[]
+  trips          Trip[]
+  commissions    TripCommission[]
+  tips           TripTip[]
 }
-
-/* ================= DOCUMENT TYPE ================= */
 
 model DocumentType {
-id Int @id @default(autoincrement())
-
-name        String
-code        String @unique
-description String?
-
-isRequired Boolean @default(true)
-isActive   Boolean @default(true)
-
-documents DriverDocument[]
-
-createdAt DateTime @default(now())
+  id          Int              @id @default(autoincrement())
+  name        String
+  code        String           @unique
+  description String?
+  isRequired  Boolean          @default(true)
+  isActive    Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  documents   DriverDocument[]
 }
-
-/* ================= DRIVER DOCUMENT ================= */
 
 model DriverDocument {
-id Int @id @default(autoincrement())
-
-driverId Int
-driver   Driver @relation(fields: [driverId], references: [id], onDelete: Cascade)
-
-documentTypeId Int
-documentType   DocumentType @relation(fields: [documentTypeId], references: [id])
-
-fileUrl String
-status  String
-
-reviewedById Int?
-reviewedBy   User? @relation(fields: [reviewedById], references: [id])
-
-reviewedAt DateTime?
-uploadedAt DateTime @default(now())
+  id             Int          @id @default(autoincrement())
+  driverId       Int
+  documentTypeId Int
+  fileUrl        String
+  status         String
+  reviewedById   Int?
+  reviewedAt     DateTime?
+  uploadedAt     DateTime     @default(now())
+  documentType   DocumentType @relation(fields: [documentTypeId], references: [id])
+  driver         Driver       @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  reviewedBy     User?        @relation(fields: [reviewedById], references: [id])
 }
-
-/* ================= VEHICLE ================= */
 
 model CustomerVehicle {
-id Int @id @default(autoincrement())
-
-customerId Int
-customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-
-plateNumber String @unique
-brand       String?
-model       String?
-color       String?
-year        Int?
-
-vehicleType String?
-note        String?
-
-isDefault Boolean @default(false)
-
-trips Trip[]
-
-createdAt DateTime @default(now())
-updatedAt DateTime @updatedAt
+  id          Int      @id @default(autoincrement())
+  customerId  Int
+  plateNumber String   @unique
+  brand       String?
+  model       String?
+  color       String?
+  year        Int?
+  vehicleType String?
+  note        String?
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  trips       Trip[]
 }
-
-/* ================= TRIP ================= */
 
 model Trip {
-id Int @id @default(autoincrement())
+  id                  Int                @id @default(autoincrement())
+  customerId          Int
+  driverId            Int?
+  vehicleId           Int?
+  pickupAddress       String
+  pickupLat           Float
+  pickupLng           Float
+  dropoffAddress      String
+  dropoffLat          Float
+  dropoffLng          Float
+  distanceKm          Float?
+  durationEstimateMin Int?
+  priceEstimate       Float?
+  finalPrice          Float?
+  tipTotalAmount      Float?
+  status              TripStatus         @default(requested)
+  paymentStatus       PaymentStatus      @default(pending)
+  createdAt           DateTime           @default(now())
+  conversation        Conversation?
+  disputes            Dispute[]
+  payments            Payment[]
+  review              Review?
+  customer            Customer           @relation(fields: [customerId], references: [id])
+  driver              Driver?            @relation(fields: [driverId], references: [id])
+  vehicle             CustomerVehicle?   @relation(fields: [vehicleId], references: [id])
+  commissions         TripCommission[]
+  feeBreakdowns       TripFeeBreakdown[]
+  tips                TripTip[]
+  voucherUsages       VoucherUsage[]
 
-customerId Int
-customer   Customer @relation(fields: [customerId], references: [id])
-
-driverId Int?
-driver   Driver? @relation(fields: [driverId], references: [id])
-
-vehicleId Int?
-vehicle   CustomerVehicle? @relation(fields: [vehicleId], references: [id])
-
-pickupAddress  String
-pickupLat      Float
-pickupLng      Float
-
-dropoffAddress String
-dropoffLat     Float
-dropoffLng     Float
-
-distanceKm           Float?
-durationEstimateMin  Int?
-priceEstimate        Float?
-finalPrice           Float?
-tipTotalAmount       Float?
-
-status TripStatus @default(requested)
-paymentStatus PaymentStatus @default(pending)
-
-feeBreakdowns TripFeeBreakdown[]
-commissions   TripCommission[]
-payments      Payment[]
-review        Review?
-tips          TripTip[]
-conversation  Conversation?
-
-disputes      Dispute[]
-voucherUsages VoucherUsage[]
-
-createdAt DateTime @default(now())
-
-@@index([customerId])
-@@index([driverId])
+  @@index([customerId])
+  @@index([driverId])
 }
-
-/* ================= TRIP FEES ================= */
 
 model TripFeeBreakdown {
-id Int @id @default(autoincrement())
-
-tripId Int
-trip   Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
-
-feeType String
-amount  Float
-
+  id        Int      @id @default(autoincrement())
+  tripId    Int
+  feeType   String
+  amount    Float
 createdAt DateTime @default(now())
+  trip      Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
 }
 
-/* ================= COMMISSION ================= */
-
 model CommissionPolicy {
-id Int @id @default(autoincrement())
-
-name        String
-ratePercent Float
-
-effectiveFrom DateTime
-effectiveTo   DateTime?
-
-isActive Boolean @default(true)
-
-commissions TripCommission[]
+  id            Int              @id @default(autoincrement())
+  name          String
+  ratePercent   Float
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  isActive      Boolean          @default(true)
+  commissions   TripCommission[]
 }
 
 model TripCommission {
-id Int @id @default(autoincrement())
-
-tripId Int
-trip   Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
-
-driverId Int
-driver   Driver @relation(fields: [driverId], references: [id])
-
-commissionPolicyId Int
-commissionPolicy   CommissionPolicy @relation(fields: [commissionPolicyId], references: [id])
-
-commissionAmount Float
-
-createdAt DateTime @default(now())
+  id                 Int              @id @default(autoincrement())
+  tripId             Int
+  driverId           Int
+  commissionPolicyId Int
+  commissionAmount   Float
+  createdAt          DateTime         @default(now())
+  commissionPolicy   CommissionPolicy @relation(fields: [commissionPolicyId], references: [id])
+  driver             Driver           @relation(fields: [driverId], references: [id])
+  trip               Trip             @relation(fields: [tripId], references: [id], onDelete: Cascade)
 }
-
-/* ================= PAYMENT ================= */
 
 model Payment {
-id Int @id @default(autoincrement())
-
-tripId Int
-trip   Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
-
-method        String
-gatewayName   String?
-transactionId String?
-
-amount   Float
-currency String @default("VND")
-
-status PaymentStatus @default(pending)
-
-paidAt DateTime?
-
-createdAt DateTime @default(now())
+  id            Int           @id @default(autoincrement())
+  tripId        Int
+  method        String
+  gatewayName   String?
+  transactionId String?
+  amount        Float
+  currency      String        @default("VND")
+  status        PaymentStatus @default(pending)
+  paidAt        DateTime?
+  createdAt     DateTime      @default(now())
+  trip          Trip          @relation(fields: [tripId], references: [id], onDelete: Cascade)
 }
 
-/* ================= WALLET ================= */
-
 model Wallet {
-id Int @id @default(autoincrement())
-
-userId Int @unique
-user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-balance Float @default(0)
-
-transactions WalletTransaction[]
-
-updatedAt DateTime @updatedAt
+  id           Int                 @id @default(autoincrement())
+  userId       Int                 @unique
+  balance      Float               @default(0)
+  updatedAt    DateTime            @updatedAt
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions WalletTransaction[]
 }
 
 model WalletTransaction {
-id Int @id @default(autoincrement())
-
-walletId Int
-wallet   Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
-
-type WalletTransactionType
-amount Float
-description String?
-
-createdAt DateTime @default(now())
+  id          Int                   @id @default(autoincrement())
+  walletId    Int
+  type        WalletTransactionType
+  amount      Float
+  description String?
+  createdAt   DateTime              @default(now())
+  wallet      Wallet                @relation(fields: [walletId], references: [id], onDelete: Cascade)
 }
 
-/* ================= VOUCHER ================= */
-
 model Voucher {
-id Int @id @default(autoincrement())
-code String @unique
-
-discountType  DiscountType
-discountValue Float
-
-startDate DateTime
-endDate   DateTime?
-
-isActive Boolean @default(true)
-
-usages VoucherUsage[]
+  id            Int            @id @default(autoincrement())
+  code          String         @unique
+  discountType  DiscountType
+  discountValue Float
+  startDate     DateTime
+  endDate       DateTime?
+  isActive      Boolean        @default(true)
+  usages        VoucherUsage[]
 }
 
 model VoucherUsage {
-id Int @id @default(autoincrement())
-
-voucherId Int
-voucher   Voucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
-
-userId Int
-user   User @relation(fields: [userId], references: [id])
-
-tripId Int
-trip   Trip @relation(fields: [tripId], references: [id])
-
-discountAmount Float
-
-usedAt DateTime @default(now())
+  id             Int      @id @default(autoincrement())
+  voucherId      Int
+  userId         Int
+  tripId         Int
+  discountAmount Float
+  usedAt         DateTime @default(now())
+  trip           Trip     @relation(fields: [tripId], references: [id])
+  user           User     @relation(fields: [userId], references: [id])
+  voucher        Voucher  @relation(fields: [voucherId], references: [id], onDelete: Cascade)
 }
 
-/* ================= CHAT ================= */
-
 model Conversation {
-id Int @id @default(autoincrement())
-
-tripId Int @unique
-trip   Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
-
-messages Message[]
-
-createdAt DateTime @default(now())
+  id        Int       @id @default(autoincrement())
+  tripId    Int       @unique
+  createdAt DateTime  @default(now())
+trip      Trip      @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  messages  Message[]
 }
 
 model Message {
-id Int @id @default(autoincrement())
-
-conversationId Int
-conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-
-senderId Int
-sender   User @relation(fields: [senderId], references: [id])
-
-messageType String
-content String?
-fileUrl String?
-
-isRead Boolean @default(false)
-
-createdAt DateTime @default(now())
+  id             Int          @id @default(autoincrement())
+  conversationId Int
+  senderId       Int
+  messageType    String
+  content        String?
+  fileUrl        String?
+  isRead         Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User         @relation(fields: [senderId], references: [id])
 }
-
-/* ================= REVIEW ================= */
 
 model Review {
-id Int @id @default(autoincrement())
-
-tripId Int @unique
-trip   Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
-
-customerId Int
-customer   Customer @relation(fields: [customerId], references: [id])
-
-driverId Int
-driver   Driver @relation(fields: [driverId], references: [id])
-
-rating  Int
-comment String?
-
-createdAt DateTime @default(now())
+  id         Int      @id @default(autoincrement())
+  tripId     Int      @unique
+  customerId Int
+  driverId   Int
+  rating     Int
+  comment    String?
+  createdAt  DateTime @default(now())
+  customer   Customer @relation(fields: [customerId], references: [id])
+  driver     Driver   @relation(fields: [driverId], references: [id])
+  trip       Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
 }
-
-/* ================= DISPUTE ================= */
 
 model Dispute {
-id Int @id @default(autoincrement())
-
-tripId Int
-trip   Trip @relation(fields: [tripId], references: [id])
-
-createdById Int
-createdBy   User @relation("CreatedBy", fields: [createdById], references: [id])
-
-reason      String
-description String?
-
-status DisputeStatus @default(open)
-
-resolvedById Int?
-resolvedBy   User? @relation("ResolvedBy", fields: [resolvedById], references: [id])
-
-resolvedAt DateTime?
-
-createdAt DateTime @default(now())
+  id           Int           @id @default(autoincrement())
+  tripId       Int
+  createdById  Int
+  reason       String
+  description  String?
+  status       DisputeStatus @default(open)
+  resolvedById Int?
+  resolvedAt   DateTime?
+  createdAt    DateTime      @default(now())
+  createdBy    User          @relation("CreatedBy", fields: [createdById], references: [id])
+  resolvedBy   User?         @relation("ResolvedBy", fields: [resolvedById], references: [id])
+  trip         Trip          @relation(fields: [tripId], references: [id])
 }
 
-/* ================= TIP ================= */
-
 model TripTip {
-id Int @id @default(autoincrement())
-
-tripId Int
-trip   Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
-
-customerId Int
-customer   Customer @relation(fields: [customerId], references: [id])
-
-driverId Int
-driver   Driver @relation(fields: [driverId], references: [id])
-
-amount Float
-
-status TipStatus @default(success)
-
-logs TipLog[]
-
-createdAt DateTime @default(now())
+  id         Int       @id @default(autoincrement())
+  tripId     Int
+  customerId Int
+  driverId   Int
+  amount     Float
+  status     TipStatus @default(success)
+  createdAt  DateTime  @default(now())
+  logs       TipLog[]
+  customer   Customer  @relation(fields: [customerId], references: [id])
+  driver     Driver    @relation(fields: [driverId], references: [id])
+  trip       Trip      @relation(fields: [tripId], references: [id], onDelete: Cascade)
 }
 
 model TipLog {
-id Int @id @default(autoincrement())
-
-tipId Int
-tip   TripTip @relation(fields: [tipId], references: [id], onDelete: Cascade)
-
-performedBy Int
-performer   User @relation(fields: [performedBy], references: [id])
-
-action String
-
-createdAt DateTime @default(now())
+  id          Int      @id @default(autoincrement())
+  tipId       Int
+  performedBy Int
+  action      String
+  createdAt   DateTime @default(now())
+  performer   User     @relation(fields: [performedBy], references: [id])
+  tip         TripTip  @relation(fields: [tipId], references: [id], onDelete: Cascade)
 }
 
-/* ================= PRICING CONFIG ================= */
-
 model PricingConfig {
-id                  Int      @id @default(autoincrement())
-name                String   @unique
-vehicleType         String?
-perKmPrice          Float    @default(12000)
-perMinPrice         Float    @default(500)
-nightMultiplier     Float    @default(1.3)
-rushHourMultiplier  Float    @default(1.2)
-badWeatherFee       Float    @default(0)
-isActive            Boolean  @default(true)
-createdAt           DateTime @default(now())
-updatedAt           DateTime @updatedAt
+  id                 Int      @id @default(autoincrement())
+  name               String   @unique
+  vehicleType        String?
+  perKmPrice         Float    @default(12000)
+  perMinPrice        Float    @default(500)
+  nightMultiplier    Float    @default(1.3)
+  rushHourMultiplier Float    @default(1.2)
+  badWeatherFee      Float    @default(0)
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+enum UserStatus {
+  active
+  banned
+  suspended
+}
+
+enum DriverStatus {
+  pending
+  approved
+  rejected
+  suspended
+}
+enum TripStatus {
+  requested
+  accepted
+  started
+  completed
+  cancelled
+}
+
+enum PaymentStatus {
+  pending
+  success
+  failed
+  refunded
+}
+
+enum DiscountType {
+  percent
+  fixed
+}
+
+enum WalletTransactionType {
+  credit
+  debit
+  commission
+  refund
+}
+
+enum DisputeStatus {
+  open
+  investigating
+  resolved
+}
+
+enum TipStatus {
+  success
+  failed
+  refunded
+}
+
+model DriverRank {
+  id             Int      @id @default(autoincrement())
+  name           String   @unique
+  code           String   @unique
+  minTrips       Int      @default(0)
+  driverRate     Float    @default(80)
+  platformRate   Float    @default(20)
+  acceptanceRate String   @default("92%")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  drivers        Driver[]
+}
+
+model SystemConfig {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique
+  value       String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
