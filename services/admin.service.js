@@ -153,3 +153,95 @@ export const createDriverAdmin = async (data) => {
         return { user, driver };
     });
 };
+
+/**
+ * Lấy thống kê số lượng tài xế
+ */
+export const getDriverStats = async () => {
+    const totalDrivers = await prisma.driver.count();
+    return { totalDrivers };
+};
+
+/**
+ * Lấy danh sách hạng tài xế kèm số lượng tài xế mỗi hạng
+ */
+export const getDriverRanks = async () => {
+    const ranks = await prisma.driverRank.findMany({
+        include: {
+            _count: {
+                select: { Driver: true }
+            }
+        },
+        orderBy: { minTrips: 'asc' }
+    });
+    
+    // Ánh xạ lại tên trường của _count để khớp với frontend mong đợi (drivers)
+    return ranks.map(rank => ({
+        ...rank,
+        _count: {
+            drivers: rank._count.Driver
+        }
+    }));
+};
+
+
+/**
+ * Cập nhật thông tin hạng tài xế
+ */
+export const updateDriverRank = async (id, data) => {
+    const { minTrips, acceptanceRate } = data;
+    return await prisma.driverRank.update({
+        where: { id: parseInt(id) },
+        data: {
+            minTrips: parseInt(minTrips),
+            acceptanceRate,
+            updatedAt: new Date()
+        }
+    });
+};
+
+/**
+ * Lấy cấu hình hệ thống theo key
+ */
+export const getSystemConfig = async (key) => {
+    return await prisma.systemConfig.findUnique({
+        where: { key }
+    });
+};
+
+/**
+ * Cập nhật hoặc tạo mới cấu hình hệ thống
+ */
+export const updateSystemConfig = async (key, data) => {
+    const { value, description } = data;
+    const config = await prisma.systemConfig.upsert({
+        where: { key },
+        update: { 
+            value: value.toString(), 
+            description,
+            updatedAt: new Date()
+        },
+        create: { 
+            key, 
+            value: value.toString(), 
+            description,
+            updatedAt: new Date()
+        }
+    });
+
+    // Nếu cập nhật tỷ lệ mặc định, tự động cập nhật cho tất cả các hạng tài xế
+    if (key === 'default_commission') {
+        const rate = parseFloat(value);
+        await prisma.driverRank.updateMany({
+            data: {
+                driverRate: rate,
+                platformRate: 100 - rate,
+                updatedAt: new Date()
+            }
+        });
+    }
+
+    return config;
+};
+
+

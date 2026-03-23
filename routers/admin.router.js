@@ -24,4 +24,16 @@ router.put('/drivers/:id/lock', adminController.lockDriver);
 router.put('/drivers/:id/unlock', adminController.unlockDriver);
 router.post('/drivers', adminController.createDriver);
 
+// --- Thống kê ---
+router.get('/stats/drivers', verifyAdminToken, adminController.getDriverStatsController);
+
+// --- Quản lý hạng tài xế ---
+router.get('/driver-ranks', verifyAdminToken, adminController.getDriverRanksController);
+router.put('/driver-ranks/:id', verifyAdminToken, adminController.updateDriverRankController);
+
+// --- Cấu hình hệ thống ---
+router.get('/system/configs/:key', verifyAdminToken, adminController.getSystemConfigController);
+router.put('/system/configs/:key', verifyAdminToken, adminController.updateSystemConfigController);
+
 export default router;
+
