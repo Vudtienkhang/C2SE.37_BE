@@ -11,6 +11,9 @@ router.post('/login', adminController.loginController);
 // Route Đăng xuất (Có áp dụng middleware xác thực token của Admin)
 router.post('/logout', verifyAdminToken, adminController.logoutController);
 
+// --- Quản lý người dùng tổng quát ---
+router.get('/users', verifyAdminToken, adminController.getAllUsers);
+
 // --- Quản lý khách hàng ---
 router.get('/customers', verifyAdminToken, adminCustomerController.getCustomersInfo);
 router.get('/customers/stats', verifyAdminToken, adminCustomerController.getCustomerStats);

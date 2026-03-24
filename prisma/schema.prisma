@@ -38,6 +38,18 @@ model User {
   role                    Role             @relation(fields: [roleId], references: [id], onDelete: Cascade)
   voucherUsages           VoucherUsage[]
   wallet                  Wallet?
+  notifications           Notification[]
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  title     String
+  content   String
+  type      String   @default("INFO")
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Customer {
