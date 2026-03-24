@@ -42,6 +42,12 @@ export const loginUser = async ({ email, password }) => {
     };
 };
 
+export const getAllUsers = async () => {
+    return await prisma.user.findMany({
+        orderBy: { createdAt: 'desc' }
+    });
+};
+
 export const getAllDrivers = async () => {
     return await prisma.driver.findMany({
         include: {

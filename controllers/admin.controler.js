@@ -66,6 +66,19 @@ export const logoutController = async (req, res) => {
     }
 };
 
+export const getAllUsers = async (req, res) => {
+    try {
+        const users = await authAdmin.getAllUsers();
+        return res.status(200).json({
+            success: true,
+            data: users
+        });
+    } catch (error) {
+        console.error('Lỗi getAllUsers:', error);
+        return res.status(500).json({ success: false, message: 'Lỗi máy chủ nội bộ' });
+    }
+};
+
 export const getAllDrivers = async (req, res) => {
     try {
         const drivers = await authAdmin.getAllDrivers();
