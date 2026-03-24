@@ -184,6 +184,7 @@ export const initSocket = (server) => {
             durationEstimateMin: parseInt(pending.data.duration),
             priceEstimate: parseFloat(pending.data.price),
             routePolyline: pending.data.routePolyline,
+            vehicleId: pending.data.vehicleId ? parseInt(pending.data.vehicleId) : null,
             status: 'accepted',
           },
           include: {

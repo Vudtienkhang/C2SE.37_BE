@@ -1,4 +1,4 @@
-import { getVehiclesByUserId, createVehicle } from '../services/customer.services.js';
+import { getVehiclesByUserId, createVehicle, setDefaultVehicle as setServiceDefaultVehicle } from '../services/customer.services.js';
 
 export const getMyVehicles = async (req, res) => {
     try {
@@ -46,6 +46,24 @@ export const addVehicle = async (req, res) => {
         return res.status(500).json({
             success: false,
             message: error.message || 'Lỗi hệ thống khi thêm xe.',
+        });
+    }
+};
+
+export const setDefaultVehicle = async (req, res) => {
+    try {
+        const { userId, vehicleId } = req.params;
+        const vehicle = await setServiceDefaultVehicle(userId, vehicleId);
+        
+        return res.status(200).json({
+            success: true,
+            message: 'Cập nhật xe mặc định thành công',
+            data: vehicle
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message || 'Lỗi hệ thống khi cập nhật xe mặc định.'
         });
     }
 };

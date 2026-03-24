@@ -8,7 +8,8 @@ export const getTripById = async (req, res) => {
       where: { id: parseInt(id) },
       include: {
         customer: { include: { user: true } },
-        driver: { include: { user: true } }
+        driver: { include: { user: true } },
+        vehicle: true
       }
     });
 

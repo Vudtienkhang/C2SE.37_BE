@@ -71,3 +71,28 @@ export const createVehicle = async (userId, vehicleData) => {
 
     return newVehicle;
 };
+
+export const setDefaultVehicle = async (userId, vehicleId) => {
+    const numericUserId = parseInt(userId, 10);
+    const numericVehicleId = parseInt(vehicleId, 10);
+
+    const customer = await prisma.customer.findUnique({
+        where: { userId: numericUserId },
+    });
+
+    if (!customer) throw new Error('Người dùng không tồn tại.');
+
+    // 1. Gỡ mặc định tất cả xe của user này
+    await prisma.customerVehicle.updateMany({
+        where: { customerId: customer.id },
+        data: { isDefault: false },
+    });
+
+    // 2. Xét mặc định cho xe được chọn
+    const updatedVehicle = await prisma.customerVehicle.update({
+        where: { id: numericVehicleId },
+        data: { isDefault: true },
+    });
+
+    return updatedVehicle;
+};
