@@ -106,6 +106,34 @@ export const deletePricingConfig = async (req, res) => {
   }
 };
 
+export const calculatePrice = async (req, res) => {
+  try {
+    const { distanceKm, durationMin, vehicleType, isNight, isRushHour, isHoliday, weather } = req.body;
+    
+    if (distanceKm === undefined || durationMin === undefined || !vehicleType) {
+      return res.status(400).json({ success: false, message: 'Missing required parameters' });
+    }
+
+    const currentHour = new Date().getHours();
+    const autoIsNight = isNight ?? (currentHour >= 22 || currentHour < 5);
+    const autoIsRushHour = isRushHour ?? ((currentHour >= 7 && currentHour <= 9) || (currentHour >= 16 && currentHour <= 19));
+
+    const priceResult = await pricingService.calculateTripPrice({
+      distanceKm: parseFloat(distanceKm),
+      durationMin: parseFloat(durationMin),
+      vehicleType,
+      isNight: autoIsNight,
+      isRushHour: autoIsRushHour,
+      isHoliday: isHoliday || false,
+      weather: weather || 'auto'
+    });
+    
+    res.status(200).json({ success: true, data: priceResult });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 export const getWeatherStatus = async (req, res) => {
   try {
     const weatherData = await pricingService.getWeatherStatus();

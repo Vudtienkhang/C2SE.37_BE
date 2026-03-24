@@ -4,6 +4,9 @@ import { verifyAdminToken } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
 
+router.post('/validate', controller.validateVoucher);
+router.get('/public', controller.getPublicVouchers);
+
 router.use(verifyAdminToken);
 
 router.get('/', controller.getAllVouchers);

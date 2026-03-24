@@ -200,3 +200,101 @@ export const deleteVoucher = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+// ─── GET PUBLIC VOUCHERS ──────────────────────────────────────────────────────
+export const getPublicVouchers = async (req, res) => {
+  try {
+    const now = new Date();
+    const vouchers = await prisma.voucher.findMany({
+      where: {
+        isActive: true,
+        startDate: { lte: now },
+        OR: [
+          { endDate: null },
+          { endDate: { gte: now } }
+        ]
+      },
+      orderBy: { discountValue: 'desc' },
+      take: 10 // top 10 vouchers
+    });
+    
+    res.status(200).json({ success: true, data: vouchers });
+  } catch (error) {
+    console.error('getPublicVouchers error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ─── VALIDATE ─────────────────────────────────────────────────────────────────
+export const validateVoucher = async (req, res) => {
+  try {
+    const { code, orderValue } = req.body;
+    
+    if (!code) {
+      return res.status(400).json({ success: false, message: 'Vui lòng nhập mã voucher' });
+    }
+
+    const voucher = await prisma.voucher.findUnique({
+      where: { code: code.trim().toUpperCase() }
+    });
+
+    if (!voucher) {
+      return res.status(404).json({ success: false, message: 'Mã giảm giá không tồn tại' });
+    }
+
+    if (!voucher.isActive) {
+      return res.status(400).json({ success: false, message: 'Mã giảm giá đã ngừng hoạt động' });
+    }
+
+    const now = new Date();
+    if (voucher.startDate && now < voucher.startDate) {
+      return res.status(400).json({ success: false, message: 'Mã giảm giá chưa đến thời gian áp dụng' });
+    }
+    
+    if (voucher.endDate && now > voucher.endDate) {
+      return res.status(400).json({ success: false, message: 'Mã giảm giá đã hết hạn' });
+    }
+
+    if (voucher.usageLimit && voucher.usedCount >= voucher.usageLimit) {
+      return res.status(400).json({ success: false, message: 'Mã giảm giá đã hết lượt sử dụng' });
+    }
+
+    if (voucher.minOrderValue && orderValue < voucher.minOrderValue) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Đơn hàng tối thiểu để áp dụng là ${voucher.minOrderValue.toLocaleString('vi-VN')}đ` 
+      });
+    }
+
+    // Tính toán số tiền được giảm
+    let discountAmount = 0;
+    if (voucher.discountType === 'percent') {
+      discountAmount = (orderValue * voucher.discountValue) / 100;
+      if (voucher.maxDiscount && discountAmount > voucher.maxDiscount) {
+        discountAmount = voucher.maxDiscount;
+      }
+    } else {
+      discountAmount = voucher.discountValue;
+    }
+
+    // Không giảm quá tổng giá trị đơn hàng
+    if (discountAmount > orderValue) {
+      discountAmount = orderValue;
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        id: voucher.id,
+        code: voucher.code,
+        discountType: voucher.discountType,
+        discountValue: voucher.discountValue,
+        discountAmount: discountAmount
+      }
+    });
+
+  } catch (error) {
+    console.error('validateVoucher error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};

@@ -9,7 +9,9 @@ export const getTripById = async (req, res) => {
       include: {
         customer: { include: { user: true } },
         driver: { include: { user: true } },
-        vehicle: true
+        vehicle: true,
+        commissions: true,
+        feeBreakdowns: true
       }
     });
 
