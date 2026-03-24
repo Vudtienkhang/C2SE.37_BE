@@ -161,3 +161,77 @@ export const createDriver = async (req, res) => {
         return res.status(500).json({ success: false, message: 'Lỗi máy chủ nội bộ' });
     }
 };
+
+export const getDriverStatsController = async (req, res) => {
+    try {
+        const stats = await authAdmin.getDriverStats();
+        return res.status(200).json({
+            success: true,
+            data: stats
+        });
+    } catch (error) {
+        console.error('Lỗi getDriverStatsController:', error);
+        return res.status(500).json({ success: false, message: 'Lỗi máy chủ nội bộ' });
+    }
+};
+
+export const getDriverRanksController = async (req, res) => {
+    try {
+        const ranks = await authAdmin.getDriverRanks();
+        return res.status(200).json({
+            success: true,
+            data: ranks
+        });
+    } catch (error) {
+        console.error('Lỗi getDriverRanksController:', error);
+        return res.status(500).json({ success: false, message: 'Lỗi máy chủ nội bộ' });
+    }
+};
+
+export const updateDriverRankController = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const rank = await authAdmin.updateDriverRank(id, req.body);
+        return res.status(200).json({
+            success: true,
+            message: 'Cập nhật hạng tài xế thành công',
+            data: rank
+        });
+    } catch (error) {
+        console.error('Lỗi updateDriverRankController:', error);
+        return res.status(500).json({ success: false, message: 'Lỗi máy chủ nội bộ' });
+    }
+};
+
+export const getSystemConfigController = async (req, res) => {
+    try {
+        const { key } = req.params;
+        const config = await authAdmin.getSystemConfig(key);
+        if (!config) {
+            return res.status(404).json({ success: false, message: 'Không tìm thấy cấu hình' });
+        }
+        return res.status(200).json({
+            success: true,
+            data: config
+        });
+    } catch (error) {
+        console.error('Lỗi getSystemConfigController:', error);
+        return res.status(500).json({ success: false, message: 'Lỗi máy chủ nội bộ' });
+    }
+};
+
+export const updateSystemConfigController = async (req, res) => {
+    try {
+        const { key } = req.params;
+        const config = await authAdmin.updateSystemConfig(key, req.body);
+        return res.status(200).json({
+            success: true,
+            message: 'Cập nhật cấu hình hệ thống thành công',
+            data: config
+        });
+    } catch (error) {
+        console.error('Lỗi updateSystemConfigController:', error);
+        return res.status(500).json({ success: false, message: 'Lỗi máy chủ nội bộ' });
+    }
+};
+
