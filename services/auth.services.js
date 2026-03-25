@@ -39,6 +39,14 @@ export const registerUser = async ({ fullName, phone, password, roleId }) => {
       });
     }
 
+    // TỰ ĐỘNG TẠO VÍ (WALLET) CHO TẤT CẢ USER MỚI
+    await tx.wallet.create({
+      data: {
+        userId: user.id,
+        balance: 0,
+      },
+    });
+
     return user;
   });
 
@@ -111,6 +119,10 @@ export const getUserById = async (id) => {
     where: { userId: numericId }
   });
 
+  const wallet = await prisma.wallet.findUnique({
+    where: { userId: numericId }
+  });
+
   return {
     id: user.id,
     fullName: user.fullName,
@@ -120,7 +132,8 @@ export const getUserById = async (id) => {
     avatarUrl: customer?.avatarUrl || "https://i.pravatar.cc/300",
     totalRides: 0,
     rating: 5.0,
-    driver: driver ? { id: driver.id, status: driver.status } : null
+    driver: driver ? { id: driver.id, status: driver.status } : null,
+    wallet: wallet ? { id: wallet.id, balance: wallet.balance } : { balance: 0 }
   };
 };
 
