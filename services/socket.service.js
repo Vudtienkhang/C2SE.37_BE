@@ -192,6 +192,36 @@ export const initSocket = (server) => {
           }
         });
 
+        // 4. Tạo Payment và VoucherUsage nếu có
+        const paymentMethod = pending.data.paymentMethod || 'CASH';
+        const discountAmount = pending.data.discountAmount || 0;
+        const finalPrice = Math.max(0, (parseFloat(pending.data.price) - discountAmount));
+
+        await prisma.payment.create({
+          data: {
+            tripId: newTrip.id,
+            method: paymentMethod,
+            amount: finalPrice,
+            status: 'pending'
+          }
+        });
+
+        if (pending.data.voucherId) {
+          await prisma.voucherUsage.create({
+            data: {
+              voucherId: pending.data.voucherId,
+              userId: pending.data.passengerId,
+              tripId: newTrip.id,
+              discountAmount: discountAmount
+            }
+          });
+          
+          await prisma.voucher.update({
+            where: { id: pending.data.voucherId },
+            data: { usedCount: { increment: 1 } }
+          });
+        }
+
         socket.join(`trip_${newTrip.id}`);
 
         // 5. Thông báo cho các bên
@@ -223,19 +253,99 @@ export const initSocket = (server) => {
     socket.on('trip:update_status', async (data) => {
       try {
         const { tripId, status } = data;
-        const updatedTrip = await prisma.trip.update({
+        let finalPrice = null;
+        let txQueries = [];
+        
+        // Retrieve the trip first to check current state
+        const trip = await prisma.trip.findUnique({
           where: { id: parseInt(tripId) },
-          data: { status: status },
-          include: { customer: { include: { user: true } } }
+          include: { driver: true, customer: { include: { user: true } } }
         });
 
-        // Nếu hoàn thành hoặc hủy, giải phóng tài xế
-        if (status === 'completed' || status === 'cancelled') {
-          await prisma.driver.update({
-            where: { id: updatedTrip.driverId },
-            data: { isBusy: false }
-          });
+        if (!trip) return;
+
+        // Xử lý khi chuyến đi hoàn thành
+        if (status === 'completed' && trip.status !== 'completed') {
+          finalPrice = trip.priceEstimate || 0;
+          
+          // Cập nhật trạng thái thanh toán
+          txQueries.push(
+            prisma.payment.updateMany({
+              where: { tripId: trip.id, status: 'pending' },
+              data: { status: 'completed', paidAt: new Date() }
+            })
+          );
+          
+          let policy = await prisma.commissionPolicy.findFirst({ where: { isActive: true } });
+          if (!policy) {
+            policy = await prisma.commissionPolicy.create({
+              data: { name: 'Mặc định 20%', ratePercent: 20, effectiveFrom: new Date() }
+            });
+          }
+
+          const commissionAmount = finalPrice * (policy.ratePercent / 100);
+
+          // Tạo commission
+          txQueries.push(
+            prisma.tripCommission.create({
+              data: {
+                tripId: trip.id,
+                driverId: trip.driver.id,
+                commissionPolicyId: policy.id,
+                commissionAmount: commissionAmount
+              }
+            })
+          );
+
+          // Lấy ví của tài xế
+          let wallet = await prisma.wallet.findUnique({ where: { userId: trip.driver.userId } });
+          if (!wallet) {
+            wallet = await prisma.wallet.create({ data: { userId: trip.driver.userId, balance: 0 } });
+          }
+
+          // Trừ tiền hoa hồng
+          txQueries.push(
+            prisma.wallet.update({
+              where: { id: wallet.id },
+              data: { balance: { decrement: commissionAmount } }
+            })
+          );
+
+          // Ghi nhận giao dịch
+          txQueries.push(
+            prisma.walletTransaction.create({
+              data: {
+                walletId: wallet.id,
+                type: 'commission',
+                amount: commissionAmount,
+                description: `Thu phí hoa hồng chuyến đi #${trip.id}`
+              }
+            })
+          );
         }
+
+        // Cập nhật trạng thái chuyến đi
+        txQueries.push(
+          prisma.trip.update({
+            where: { id: parseInt(tripId) },
+            data: { 
+              status: status,
+              ...(status === 'completed' ? { finalPrice: finalPrice } : {})
+            }
+          })
+        );
+
+        if (status === 'completed' || status === 'cancelled') {
+          txQueries.push(
+            prisma.driver.update({
+              where: { id: trip.driverId },
+              data: { isBusy: false }
+            })
+          );
+        }
+
+        // Execute all updates in a transaction
+        await prisma.$transaction(txQueries);
 
         // Phát cho mọi người trong phòng chuyến đi (bao gồm passenger)
         io.to(`trip_${tripId}`).emit('trip:status_updated', {
@@ -244,7 +354,7 @@ export const initSocket = (server) => {
         });
 
         // Đồng thời phát cho riêng passenger qua user room (dự phòng)
-        io.to(`user_${updatedTrip.customer.userId}`).emit('trip:status_updated', {
+        io.to(`user_${trip.customer.userId}`).emit('trip:status_updated', {
           tripId: tripId,
           status: status
         });

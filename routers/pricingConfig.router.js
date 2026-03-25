@@ -8,7 +8,7 @@ router.get('/:id', controller.getPricingConfigById);
 router.post('/', controller.createPricingConfig);
 router.put('/:id', controller.updatePricingConfig);
 router.delete('/:id', controller.deletePricingConfig);
+router.post('/calculate', controller.calculatePrice);
 router.get('/weather-status', controller.getWeatherStatus);
-
 
 export default router;
