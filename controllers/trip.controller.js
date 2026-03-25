@@ -1,26 +1,38 @@
-import { PrismaClient } from '@prisma/client';
-const prisma = new PrismaClient();
+import * as tripService from '../services/trip.service.js';
 
 export const getTripById = async (req, res) => {
   try {
     const { id } = req.params;
-    const trip = await prisma.trip.findUnique({
-      where: { id: parseInt(id) },
-      include: {
-        customer: { include: { user: true } },
-        driver: { include: { user: true } },
-        vehicle: true,
-        commissions: true,
-        feeBreakdowns: true
-      }
-    });
+    const trip = await tripService.fetchTripById(id);
 
     if (!trip) {
-      return res.status(404).json({ message: 'Không tìm thấy chuyến đi' });
+      return res.status(404).json({ success: false, message: 'Không tìm thấy chuyến đi' });
     }
 
-    res.json(trip);
+    res.json({ success: true, data: trip });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getTripHistory = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const trips = await tripService.fetchTripHistory(userId);
+    res.json({ success: true, data: trips });
+  } catch (error) {
+    const statusCode = error.message === 'Không tìm thấy người dùng' ? 404 : 500;
+    res.status(statusCode).json({ success: false, message: error.message });
+  }
+};
+
+export const getCurrentTrip = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const trip = await tripService.fetchCurrentTrip(userId);
+    res.json({ success: true, data: trip });
+  } catch (error) {
+    const statusCode = error.message === 'Không tìm thấy người dùng' ? 404 : 500;
+    res.status(statusCode).json({ success: false, message: error.message });
   }
 };
