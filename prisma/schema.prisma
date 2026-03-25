@@ -164,6 +164,7 @@ model Trip {
   distanceKm          Float?
   durationEstimateMin Int?
   priceEstimate       Float?
+  routePolyline       String?
   finalPrice          Float?
   tipTotalAmount      Float?
   status              TripStatus         @default(requested)
@@ -241,12 +242,14 @@ model Wallet {
 
 model WalletTransaction {
   id          Int                   @id @default(autoincrement())
-  walletId    Int
-  type        WalletTransactionType
-  amount      Float
-  description String?
-  createdAt   DateTime              @default(now())
-  wallet      Wallet                @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  walletId             Int
+  type                 WalletTransactionType
+  amount               Float
+  description          String?
+  gatewayTransactionId String?               @unique
+  reference            String?
+  createdAt            DateTime              @default(now())
+  wallet               Wallet                @relation(fields: [walletId], references: [id], onDelete: Cascade)
 }
 
 model Voucher {
@@ -254,6 +257,11 @@ model Voucher {
   code          String         @unique
   discountType  DiscountType
   discountValue Float
+  maxDiscount   Float?
+  minOrderValue Float?
+  usageLimit    Int?
+  usedCount     Int            @default(0)
+  target        String         @default("all")
   startDate     DateTime
   endDate       DateTime?
   isActive      Boolean        @default(true)
@@ -353,6 +361,7 @@ model PricingConfig {
   perMinPrice        Float    @default(500)
   nightMultiplier    Float    @default(1.3)
   rushHourMultiplier Float    @default(1.2)
+  holidayMultiplier  Float    @default(1.0)
   badWeatherFee      Float    @default(0)
   isActive           Boolean  @default(true)
   createdAt          DateTime @default(now())
