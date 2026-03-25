@@ -49,6 +49,16 @@ export const initSocket = (server) => {
           where: { id: id },
           data: { currentLat: lat, currentLng: lng, lastLocationAt: new Date() },
         });
+
+        // Lưu lịch sử vị trí vào bảng DriverLocationHistory
+        await prisma.driverLocationHistory.create({
+          data: {
+            driverId: id,
+            lat: lat,
+            lng: lng,
+          },
+        });
+
         io.emit('driver:location_changed', { driverId: id, lat, lng });
       } catch (err) {
         console.error('Error in driver:update_location:', err);
@@ -365,10 +375,26 @@ export const initSocket = (server) => {
     });
 
     // Driver: Phát vị trí cho passenger trong chuyến đi
-    socket.on('trip:location_update', (data) => {
-      const { tripId, lat, lng } = data;
+    socket.on('trip:location_update', async (data) => {
+      const { tripId, lat, lng, driverId } = data;
       // Chỉ phát cho những người đang theo dõi chuyến đi này
       socket.to(`trip_${tripId}`).emit('driver:location_changed', { lat, lng });
+
+      // Lưu lịch sử vị trí gắn với tripId
+      if (driverId) {
+        try {
+          await prisma.driverLocationHistory.create({
+            data: {
+              driverId: parseInt(driverId),
+              tripId: parseInt(tripId),
+              lat: lat,
+              lng: lng,
+            },
+          });
+        } catch (err) {
+          console.error('Error saving trip location history:', err);
+        }
+      }
     });
 
     socket.on('disconnect', () => {
