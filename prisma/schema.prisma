@@ -89,7 +89,7 @@ model Driver {
   licenseType    String?
   ratingAvg      Float?
   totalTrips     Int              @default(0)
-  isOnline       Boolean          @default(false)
+isOnline       Boolean          @default(false)
   status         DriverStatus     @default(pending)
   suspendedUntil DateTime?
   reason         String?
@@ -175,7 +175,7 @@ model Trip {
   payments            Payment[]
   review              Review?
   customer            Customer           @relation(fields: [customerId], references: [id])
-  driver              Driver?            @relation(fields: [driverId], references: [id])
+driver              Driver?            @relation(fields: [driverId], references: [id])
   vehicle             CustomerVehicle?   @relation(fields: [vehicleId], references: [id])
   commissions         TripCommission[]
   feeBreakdowns       TripFeeBreakdown[]
@@ -264,7 +264,7 @@ model Voucher {
   target        String         @default("all")
   startDate     DateTime
   endDate       DateTime?
-  isActive      Boolean        @default(true)
+isActive      Boolean        @default(true)
   usages        VoucherUsage[]
 }
 
@@ -350,7 +350,7 @@ model TipLog {
   action      String
   createdAt   DateTime @default(now())
   performer   User     @relation(fields: [performedBy], references: [id])
-  tip         TripTip  @relation(fields: [tipId], references: [id], onDelete: Cascade)
+tip         TripTip  @relation(fields: [tipId], references: [id], onDelete: Cascade)
 }
 
 model PricingConfig {
