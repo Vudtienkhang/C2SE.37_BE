@@ -106,6 +106,7 @@ isOnline       Boolean          @default(false)
   trips          Trip[]
   commissions    TripCommission[]
   tips           TripTip[]
+  locationHistory DriverLocationHistory[]
 }
 
 model DocumentType {
@@ -181,6 +182,7 @@ driver              Driver?            @relation(fields: [driverId], references:
   feeBreakdowns       TripFeeBreakdown[]
   tips                TripTip[]
   voucherUsages       VoucherUsage[]
+  locationHistory     DriverLocationHistory[]
 
   @@index([customerId])
   @@index([driverId])
@@ -406,6 +408,7 @@ enum DriverStatus {
 enum TripStatus {
   requested
   accepted
+  arrived
   started
   completed
   cancelled
@@ -416,6 +419,21 @@ enum PaymentStatus {
   success
   failed
   refunded
+}
+
+model DriverLocationHistory {
+  id        Int      @id @default(autoincrement())
+  driverId  Int
+  tripId    Int?
+  lat       Float
+  lng       Float
+  createdAt DateTime @default(now())
+
+  driver Driver @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  trip   Trip?  @relation(fields: [tripId], references: [id], onDelete: SetNull)
+
+  @@index([driverId, createdAt])
+  @@index([tripId])
 }
 
 enum DiscountType {
