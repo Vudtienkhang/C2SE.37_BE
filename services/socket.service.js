@@ -179,58 +179,103 @@ export const initSocket = (server) => {
           });
         }
 
-        // 3. TẠO CHUYẾN ĐI TRONG DATABASE
-        const newTrip = await prisma.trip.create({
-          data: {
-            customerId: customer.id,
-            driverId: parseInt(driverId),
-            pickupAddress: pending.data.pickupAddress,
-            pickupLat: parseFloat(pending.data.pickupLat),
-            pickupLng: parseFloat(pending.data.pickupLng),
-            dropoffAddress: pending.data.dropoffAddress,
-            dropoffLat: parseFloat(pending.data.dropoffLat),
-            dropoffLng: parseFloat(pending.data.dropoffLng),
-            distanceKm: parseFloat(pending.data.distance),
-            durationEstimateMin: parseInt(pending.data.duration),
-            priceEstimate: parseFloat(pending.data.price),
-            routePolyline: pending.data.routePolyline,
-            vehicleId: pending.data.vehicleId ? parseInt(pending.data.vehicleId) : null,
-            status: 'accepted',
-          },
-          include: {
-            driver: { include: { user: true } }
-          }
-        });
-
-        // 4. Tạo Payment và VoucherUsage nếu có
-        const paymentMethod = pending.data.paymentMethod || 'CASH';
-        const discountAmount = pending.data.discountAmount || 0;
-        const finalPrice = Math.max(0, (parseFloat(pending.data.price) - discountAmount));
-
-        await prisma.payment.create({
-          data: {
-            tripId: newTrip.id,
-            method: paymentMethod,
-            amount: finalPrice,
-            status: 'pending'
-          }
-        });
-
-        if (pending.data.voucherId) {
-          await prisma.voucherUsage.create({
+        // 3. TỐI ƯU HÓA: Sử dụng interactive transaction để thực hiện tất cả các bước trong một lần gửi tới DB
+        const result = await prisma.$transaction(async (tx) => {
+          const trip = await tx.trip.create({
             data: {
-              voucherId: pending.data.voucherId,
-              userId: pending.data.passengerId,
-              tripId: newTrip.id,
-              discountAmount: discountAmount
+              customerId: customer.id,
+              driverId: parseInt(driverId),
+              pickupAddress: pending.data.pickupAddress,
+              pickupLat: parseFloat(pending.data.pickupLat),
+              pickupLng: parseFloat(pending.data.pickupLng),
+              dropoffAddress: pending.data.dropoffAddress,
+              dropoffLat: parseFloat(pending.data.dropoffLat),
+              dropoffLng: parseFloat(pending.data.dropoffLng),
+              distanceKm: parseFloat(pending.data.distance),
+              durationEstimateMin: parseInt(pending.data.duration),
+              priceEstimate: parseFloat(pending.data.price),
+              routePolyline: pending.data.routePolyline,
+              vehicleId: pending.data.vehicleId ? parseInt(pending.data.vehicleId) : null,
+              status: 'accepted',
+            },
+            include: {
+              driver: { include: { user: true } }
             }
           });
-          
-          await prisma.voucher.update({
-            where: { id: pending.data.voucherId },
-            data: { usedCount: { increment: 1 } }
-          });
-        }
+
+          const paymentMethod = pending.data.paymentMethod || 'CASH';
+          const discountAmount = pending.data.discountAmount || 0;
+          const finalPrice = Math.max(0, (parseFloat(pending.data.price) - discountAmount));
+
+          if (paymentMethod === 'WALLET') {
+            const wallet = await tx.wallet.findUnique({
+              where: { userId: pending.data.passengerId }
+            });
+
+            if (!wallet || wallet.balance < finalPrice) {
+              throw new Error('WALLET_INSUFFICIENT_FUNDS');
+            }
+
+            await tx.wallet.update({
+              where: { id: wallet.id },
+              data: { balance: { decrement: finalPrice } }
+            });
+
+            await tx.walletTransaction.create({
+              data: {
+                walletId: wallet.id,
+                type: 'debit',
+                amount: finalPrice,
+                description: `Thanh toán chuyến đi #${trip.id} (Giữ tiền)`,
+                reference: `trip_${trip.id}`
+              }
+            });
+
+            await tx.payment.create({
+              data: {
+                tripId: trip.id,
+                method: paymentMethod,
+                amount: finalPrice,
+                status: 'success'
+              }
+            });
+          } else {
+            await tx.payment.create({
+              data: {
+                tripId: trip.id,
+                method: paymentMethod,
+                amount: finalPrice,
+                status: 'pending'
+              }
+            });
+          }
+
+          if (pending.data.voucherId) {
+            await tx.voucherUsage.create({
+              data: {
+                voucherId: pending.data.voucherId,
+                userId: pending.data.passengerId,
+                tripId: trip.id,
+                discountAmount: discountAmount
+              }
+            });
+            
+            await tx.voucher.update({
+              where: { id: pending.data.voucherId },
+              data: { usedCount: { increment: 1 } }
+            });
+          }
+
+          return { trip, finalPrice };
+        }, { timeout: 15000 });
+
+        const { trip: newTrip, finalPrice } = result;
+        
+        // EMIT NGAY LẬP TỨC CHO TÀI XẾ ĐỂ CHUYỂN GIAO DIỆN
+        socket.emit('trip:accept_success', { 
+          tripId: newTrip.id,
+          trip: newTrip 
+        });
 
         socket.join(`trip_${newTrip.id}`);
 
@@ -242,14 +287,23 @@ export const initSocket = (server) => {
           vehiclePlate: "43A-123.45" 
         });
 
-        socket.emit('trip:accept_success', { tripId: newTrip.id });
+        // Thông báo số dư mới cho khách nếu dùng ví
+        if (pending.data.paymentMethod === 'WALLET') {
+          io.to(`user_${pending.data.passengerId}`).emit('wallet:updated', { 
+            reason: 'escrow_hold' 
+          });
+        }
 
         // 6. Xóa khỏi pending
         pendingTrips.delete(requestId);
 
       } catch (error) {
         console.error('[TRIP ERROR] Accept error:', error);
-        socket.emit('trip:error', { message: 'Lỗi khi chấp nhận chuyến đi' });
+        if (error.message === 'WALLET_INSUFFICIENT_FUNDS') {
+          socket.emit('trip:error', { message: 'Số dư ví khách hàng không đủ' });
+        } else {
+          socket.emit('trip:error', { message: 'Lỗi khi chấp nhận chuyến đi' });
+        }
       }
     });
 
@@ -263,112 +317,105 @@ export const initSocket = (server) => {
     socket.on('trip:update_status', async (data) => {
       try {
         const { tripId, status } = data;
-        let finalPrice = null;
-        let txQueries = [];
         
-        // Retrieve the trip first to check current state
-        const trip = await prisma.trip.findUnique({
-          where: { id: parseInt(tripId) },
-          include: { driver: true, customer: { include: { user: true } } }
-        });
+        await prisma.$transaction(async (tx) => {
+          const trip = await tx.trip.findUnique({
+            where: { id: parseInt(tripId) },
+            include: { 
+              driver: true, 
+              customer: { include: { user: true } },
+              payments: true
+            }
+          });
 
-        if (!trip) return;
+          if (!trip || (status === 'completed' && trip.status === 'completed')) return;
 
-        // Xử lý khi chuyến đi hoàn thành
-        if (status === 'completed' && trip.status !== 'completed') {
-          finalPrice = trip.priceEstimate || 0;
-          
-          // Cập nhật trạng thái thanh toán
-          txQueries.push(
-            prisma.payment.updateMany({
+          let finalPrice = trip.priceEstimate || 0;
+
+          if (status === 'completed') {
+            await tx.payment.updateMany({
               where: { tripId: trip.id, status: 'pending' },
-              data: { status: 'completed', paidAt: new Date() }
-            })
-          );
-          
-          let policy = await prisma.commissionPolicy.findFirst({ where: { isActive: true } });
-          if (!policy) {
-            policy = await prisma.commissionPolicy.create({
+              data: { status: 'success', paidAt: new Date() }
+            });
+            
+            const [policyResult, driverWalletResult] = await Promise.all([
+              tx.commissionPolicy.findFirst({ where: { isActive: true } }),
+              tx.wallet.findUnique({ where: { userId: trip.driver.userId } })
+            ]);
+
+            let policy = policyResult || await tx.commissionPolicy.create({
               data: { name: 'Mặc định 20%', ratePercent: 20, effectiveFrom: new Date() }
             });
-          }
 
-          const commissionAmount = finalPrice * (policy.ratePercent / 100);
+            let driverWallet = driverWalletResult || await tx.wallet.create({ 
+              data: { userId: trip.driver.userId, balance: 0 } 
+            });
 
-          // Tạo commission
-          txQueries.push(
-            prisma.tripCommission.create({
+            const commissionAmount = finalPrice * (policy.ratePercent / 100);
+            const driverIncome = finalPrice - commissionAmount;
+
+            if (trip.payments[0]?.method === 'WALLET') {
+              await tx.wallet.update({
+                where: { id: driverWallet.id },
+                data: { balance: { increment: driverIncome } }
+              });
+
+              await tx.walletTransaction.create({
+                data: {
+                  walletId: driverWallet.id,
+                  type: 'credit',
+                  amount: driverIncome,
+                  description: `Thu nhập chuyến đi #${trip.id}`,
+                  reference: `trip_${trip.id}`
+                }
+              });
+
+              io.to(`driver_${trip.driver.userId}`).emit('wallet:updated', { reason: 'trip_payout' });
+              io.to(`user_${trip.customer.userId}`).emit('wallet:updated', { reason: 'trip_completed' });
+            }
+
+            await tx.tripCommission.create({
               data: {
                 tripId: trip.id,
                 driverId: trip.driver.id,
                 commissionPolicyId: policy.id,
                 commissionAmount: commissionAmount
               }
-            })
-          );
+            });
 
-          // Lấy ví của tài xế
-          let wallet = await prisma.wallet.findUnique({ where: { userId: trip.driver.userId } });
-          if (!wallet) {
-            wallet = await prisma.wallet.create({ data: { userId: trip.driver.userId, balance: 0 } });
-          }
-
-          // Trừ tiền hoa hồng
-          txQueries.push(
-            prisma.wallet.update({
-              where: { id: wallet.id },
+            await tx.wallet.update({
+              where: { id: driverWallet.id },
               data: { balance: { decrement: commissionAmount } }
-            })
-          );
+            });
 
-          // Ghi nhận giao dịch
-          txQueries.push(
-            prisma.walletTransaction.create({
+            await tx.walletTransaction.create({
               data: {
-                walletId: wallet.id,
+                walletId: driverWallet.id,
                 type: 'commission',
                 amount: commissionAmount,
                 description: `Thu phí hoa hồng chuyến đi #${trip.id}`
               }
-            })
-          );
-        }
+            });
+          }
 
-        // Cập nhật trạng thái chuyến đi
-        txQueries.push(
-          prisma.trip.update({
+          await tx.trip.update({
             where: { id: parseInt(tripId) },
             data: { 
               status: status,
               ...(status === 'completed' ? { finalPrice: finalPrice } : {})
             }
-          })
-        );
+          });
 
-        if (status === 'completed' || status === 'cancelled') {
-          txQueries.push(
-            prisma.driver.update({
+          if (status === 'completed' || status === 'cancelled') {
+            await tx.driver.update({
               where: { id: trip.driverId },
               data: { isBusy: false }
-            })
-          );
-        }
+            });
+          }
+        }, { timeout: 15000 });
 
-        // Execute all updates in a transaction
-        await prisma.$transaction(txQueries);
-
-        // Phát cho mọi người trong phòng chuyến đi (bao gồm passenger)
-        io.to(`trip_${tripId}`).emit('trip:status_updated', {
-          tripId: tripId,
-          status: status
-        });
-
-        // Đồng thời phát cho riêng passenger qua user room (dự phòng)
-        io.to(`user_${trip.customer.userId}`).emit('trip:status_updated', {
-          tripId: tripId,
-          status: status
-        });
-
+        io.to(`trip_${tripId}`).emit('trip:status_updated', { tripId, status });
+        
       } catch (error) {
         console.error('[TRIP ERROR] Update status error:', error);
       }
