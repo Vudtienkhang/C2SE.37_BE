@@ -1,4 +1,5 @@
 import * as reviewService from '../services/review.service.js';
+import { tripTasksQueue } from '../lib/queue.js';
 
 /**
  * Tạo đánh giá mới cho chuyến đi
@@ -16,6 +17,15 @@ export const createReview = async (req, res) => {
     const result = await reviewService.createReview({
       tripId, rating, comment, customerId, driverId
     });
+
+    // TỐI ƯU: Đẩy việc tính điểm thưởng/phạt vào Queue
+    if (driverId) {
+      await tripTasksQueue.add('PROCESS_REVIEW_SCORE', {
+        driverId: parseInt(driverId),
+        rating: parseInt(rating),
+        tripId: parseInt(tripId)
+      });
+    }
 
     res.status(201).json({ success: true, data: result });
   } catch (error) {

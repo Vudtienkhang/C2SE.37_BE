@@ -196,11 +196,12 @@ export const getDriverRanks = async () => {
  * Cập nhật thông tin hạng tài xế
  */
 export const updateDriverRank = async (id, data) => {
-    const { minTrips, acceptanceRate } = data;
+    const { minTrips, minPoints, acceptanceRate } = data;
     return await prisma.driverRank.update({
         where: { id: parseInt(id) },
         data: {
             minTrips: parseInt(minTrips),
+            minPoints: parseFloat(minPoints || 0),
             acceptanceRate,
             updatedAt: new Date()
         }
@@ -211,12 +212,13 @@ export const updateDriverRank = async (id, data) => {
  * Tạo mới hạng tài xế
  */
 export const createDriverRank = async (data) => {
-    const { name, code, minTrips, driverRate, platformRate, acceptanceRate } = data;
+    const { name, code, minTrips, minPoints, driverRate, platformRate, acceptanceRate } = data;
     return await prisma.driverRank.create({
         data: {
             name,
             code,
             minTrips: parseInt(minTrips),
+            minPoints: parseFloat(minPoints || 0),
             driverRate: parseFloat(driverRate),
             platformRate: parseFloat(platformRate),
             acceptanceRate: acceptanceRate || "92%",
@@ -237,15 +239,22 @@ export const updateDriverRankAfterTrip = async (driverId) => {
             include: { DriverRank: true }
         });
 
-        console.log(`[RANK] Driver ${driverId} totalTrips increased to ${driver.totalTrips}`);
+        console.log(`[RANK] Driver ${driverId} totalTrips: ${driver.totalTrips}, totalPoints: ${driver.totalPoints}`);
 
-        // 2. Lấy danh sách hạng sắp xếp theo minTrips giảm dần
+        // 2. Lấy danh sách hạng sắp xếp theo độ ưu tiên (điểm và số chuyến)
+        // Ưu tiên theo minPoints trước, sau đó là minTrips
         const ranks = await prisma.driverRank.findMany({
-            orderBy: { minTrips: 'desc' }
+            orderBy: [
+                { minPoints: 'desc' },
+                { minTrips: 'desc' }
+            ]
         });
 
-        // 3. Tìm hạng cao nhất phù hợp
-        const newRank = ranks.find(r => driver.totalTrips >= r.minTrips);
+        // 3. Tìm hạng cao nhất phù hợp (Thỏa mãn CẢ HAI hoặc Ưu tiên điểm số)
+        const newRank = ranks.find(r => 
+            driver.totalPoints >= (r.minPoints || 0) && 
+            driver.totalTrips >= r.minTrips
+        );
 
         // 4. Cập nhật nếu hạng mới khác hạng cũ
         if (newRank && newRank.id !== driver.rankId) {
@@ -253,7 +262,7 @@ export const updateDriverRankAfterTrip = async (driverId) => {
                 where: { id: driver.id },
                 data: { rankId: newRank.id }
             });
-            console.log(`[RANK] Driver ${driverId} upgraded from ${driver.DriverRank?.name || 'Mới'} to ${newRank.name}`);
+            console.log(`[RANK] Driver ${driverId} upgraded to ${newRank.name}`);
             return { upgraded: true, oldRank: driver.DriverRank?.name, newRank: newRank.name };
         }
 

@@ -120,7 +120,13 @@ export const getUserById = async (id) => {
   });
 
   const wallet = await prisma.wallet.findUnique({
-    where: { userId: numericId }
+    where: { userId: numericId },
+    include: {
+      transactions: {
+        orderBy: { createdAt: 'desc' },
+        take: 20
+      }
+    }
   });
 
   return {
@@ -133,7 +139,11 @@ export const getUserById = async (id) => {
     totalRides: 0,
     rating: 5.0,
     driver: driver ? { id: driver.id, status: driver.status } : null,
-    wallet: wallet ? { id: wallet.id, balance: wallet.balance } : { balance: 0 }
+    wallet: wallet ? { 
+      id: wallet.id, 
+      balance: wallet.balance,
+      transactions: wallet.transactions 
+    } : { balance: 0, transactions: [] }
   };
 };
 
