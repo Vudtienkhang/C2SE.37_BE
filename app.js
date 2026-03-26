@@ -31,6 +31,7 @@ import customerRouter from './routers/customer.router.js';
 import notificationRouter from './routers/notification.router.js';
 import paymentRouter from './routers/payment.router.js';
 import reviewRouter from './routers/review.router.js';
+import disputeRouter from './routers/dispute.router.js';
 
 app.use('/api/auth', authRouter);
 app.use('/api/auth/upload', uploadRouter);
@@ -46,6 +47,7 @@ app.use('/api/notifications', notificationRouter);
 app.use('/api/v1/payment', paymentRouter);
 app.use('/api/reviews', reviewRouter);
 app.use('/api/drivers', driverRouter);
+app.use('/api/disputes', disputeRouter);
 
 
 // Base route

@@ -91,6 +91,9 @@ export const fetchTripById = async (tripId) => {
       feeBreakdowns: true,
       review: true,
       disputes: true,
+      locationHistory: {
+        orderBy: { createdAt: 'asc' }
+      },
     },
   });
 };
