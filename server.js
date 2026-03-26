@@ -3,6 +3,7 @@ import http from 'http';
 import app from './app.js';
 import { assertDb } from './lib/db.js';
 import { initSocket } from './services/socket.service.js';
+import './services/queue.service.js'; 
 
 const PORT = process.env.PORT || 5000;
 const server = http.createServer(app);

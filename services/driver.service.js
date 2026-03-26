@@ -37,9 +37,12 @@ export const getDriverEarningsStats = async (userId) => {
     include: { commissions: true }
   });
 
+  const defaultRate = driver.DriverRank?.platformRate ?? 20;
+
   const dailyIncome = dailyTrips.reduce((acc, trip) => {
-    const commission = trip.commissions[0]?.commissionAmount || 0;
-    return acc + (trip.finalPrice - commission);
+    const commission = trip.commissions[0]?.commissionAmount ?? ( (trip.priceEstimate || trip.finalPrice || 0) * (defaultRate / 100) );
+    const originalPrice = trip.priceEstimate || trip.finalPrice || 0;
+    return acc + (originalPrice - commission);
   }, 0);
 
   // 2. Weekly stats
@@ -53,8 +56,9 @@ export const getDriverEarningsStats = async (userId) => {
   });
 
   const weeklyIncome = weeklyTrips.reduce((acc, trip) => {
-    const commission = trip.commissions[0]?.commissionAmount || 0;
-    return acc + (trip.finalPrice - commission);
+    const commission = trip.commissions[0]?.commissionAmount ?? ( (trip.priceEstimate || trip.finalPrice || 0) * (defaultRate / 100) );
+    const originalPrice = trip.priceEstimate || trip.finalPrice || 0;
+    return acc + (originalPrice - commission);
   }, 0);
 
   // 3. Recent trips (last 20)
@@ -71,13 +75,16 @@ export const getDriverEarningsStats = async (userId) => {
   });
 
   const mappedRecentTrips = recentTrips.map(trip => {
-    const commission = trip.commissions[0]?.commissionAmount || 0;
+    const commission = trip.commissions[0]?.commissionAmount ?? ( (trip.priceEstimate || trip.finalPrice || 0) * (defaultRate / 100) );
+    const originalPrice = trip.priceEstimate || trip.finalPrice || 0;
     return {
       id: trip.id,
       createdAt: trip.createdAt,
       distanceKm: trip.distanceKm,
       finalPrice: trip.finalPrice,
-      driverIncome: trip.finalPrice - commission
+      originalPrice,
+      commission,
+      driverIncome: originalPrice - commission
     };
   });
 
