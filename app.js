@@ -29,6 +29,7 @@ import tripRouter from './routers/trip.router.js';
 import customerRouter from './routers/customer.router.js';
 import notificationRouter from './routers/notification.router.js';
 import paymentRouter from './routers/payment.router.js';
+import chatRouter from './routers/chat.router.js';
 
 app.use('/api/auth', authRouter);
 app.use('/api/auth/upload', uploadRouter);
@@ -42,6 +43,7 @@ app.use('/api/trips', tripRouter);
 app.use('/api/customers', customerRouter);
 app.use('/api/notifications', notificationRouter);
 app.use('/api/v1/payment', paymentRouter);
+app.use('/api/chat', chatRouter);
 
 
 // Base route

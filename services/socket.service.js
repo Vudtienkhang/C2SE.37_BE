@@ -232,6 +232,14 @@ export const initSocket = (server) => {
           });
         }
 
+        // --- NEW: Tạo Conversation cho Chat ---
+        await prisma.conversation.upsert({
+          where: { tripId: newTrip.id },
+          update: {},
+          create: { tripId: newTrip.id }
+        });
+        // --------------------------------------
+
         socket.join(`trip_${newTrip.id}`);
 
         // 5. Thông báo cho các bên
@@ -395,6 +403,51 @@ export const initSocket = (server) => {
           console.error('Error saving trip location history:', err);
         }
       }
+    });
+
+    // ==========================================
+    // --- XỬ LÝ CHAT ---
+    // ==========================================
+    socket.on('chat:send_message', async (data) => {
+      try {
+        const { tripId, senderId, content, messageType = 'text', fileUrl } = data;
+        console.log(`[CHAT] Incoming message from ${senderId} for trip ${tripId}: "${content}"`);
+        
+        // 1. Tìm ConversationId
+        const conversation = await prisma.conversation.findUnique({
+          where: { tripId: parseInt(tripId) }
+        });
+
+        if (!conversation) return;
+
+        // 2. Lưu vào database
+        const newMessage = await prisma.message.create({
+          data: {
+            conversationId: conversation.id,
+            senderId: parseInt(senderId),
+            content: content || '',
+            messageType,
+            fileUrl
+          },
+          include: {
+            sender: {
+              select: { fullName: true, avatarUrl: true }
+            }
+          }
+        });
+
+        // 3. Phát cho mọi người trong phòng chuyến đi
+        console.log(`[CHAT] Emitting stored message: "${newMessage.content}"`);
+        io.to(`trip_${tripId}`).emit('chat:receive_message', newMessage);
+        
+      } catch (error) {
+        console.error('[CHAT ERROR] Send message error:', error);
+      }
+    });
+
+    socket.on('chat:typing', (data) => {
+      const { tripId, userId, isTyping } = data;
+      socket.to(`trip_${tripId}`).emit('chat:typing_status', { userId, isTyping });
     });
 
     socket.on('disconnect', () => {

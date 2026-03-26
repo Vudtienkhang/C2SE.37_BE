@@ -102,3 +102,27 @@ export const uploadDriverDocumentToSupabase = async (userId, documentTypeId, fil
 
   return doc;
 };
+export const uploadChatMessageImageToSupabase = async (fileBuffer, mimeType) => {
+  // 1. Tạo tên file độc nhất
+  const fileName = `chat_${Date.now()}.png`;
+  
+  // 2. Upload file lên bucket 'MessageIMG'
+  const { error } = await supabase.storage
+    .from('MessageIMG')
+    .upload(fileName, fileBuffer, {
+      contentType: mimeType || 'image/png',
+      upsert: true,
+    });
+
+  if (error) {
+    console.error('Lỗi upload ảnh chat Supabase:', error);
+    throw new Error('Lỗi khi tải ảnh lên máy chủ.');
+  }
+
+  // 3. Lấy URL công khai
+  const { data: publicUrlData } = supabase.storage
+    .from('MessageIMG')
+    .getPublicUrl(fileName);
+
+  return publicUrlData.publicUrl;
+};
