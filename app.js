@@ -23,6 +23,7 @@ import documentTypeRouter from './routers/document-type.router.js';
 import pricingRouter from './routers/pricingConfig.router.js';
 import driverScanRouter from './routers/driver-scan.router.js';
 import voucherRouter from './routers/voucher.router.js';
+import driverRouter from './routers/driver.router.js';
 
 
 import tripRouter from './routers/trip.router.js';
@@ -44,6 +45,7 @@ app.use('/api/customers', customerRouter);
 app.use('/api/notifications', notificationRouter);
 app.use('/api/v1/payment', paymentRouter);
 app.use('/api/reviews', reviewRouter);
+app.use('/api/drivers', driverRouter);
 
 
 // Base route

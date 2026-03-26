@@ -32,6 +32,7 @@ router.get('/stats/drivers', verifyAdminToken, adminController.getDriverStatsCon
 
 // --- Quản lý hạng tài xế ---
 router.get('/driver-ranks', verifyAdminToken, adminController.getDriverRanksController);
+router.post('/driver-ranks', verifyAdminToken, adminController.createDriverRankController);
 router.put('/driver-ranks/:id', verifyAdminToken, adminController.updateDriverRankController);
 
 // --- Cấu hình hệ thống ---

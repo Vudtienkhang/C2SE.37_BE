@@ -1,6 +1,7 @@
 
       import { Server } from 'socket.io';
 import prisma from '../prisma/prisma.js';
+import * as authAdminService from './admin.service.js';
 
 let io;
 const pendingTrips = new Map(); // requestId -> { data, driverIds, currentIndex, timeout, customerSocketId }
@@ -411,6 +412,19 @@ export const initSocket = (server) => {
               where: { id: trip.driverId },
               data: { isBusy: false }
             });
+
+            // Tự động cập nhật số chuyến và hạng tài xế khi hoàn thành
+            if (status === 'completed') {
+              const rankResult = await authAdminService.updateDriverRankAfterTrip(trip.driverId);
+              if (rankResult.upgraded) {
+                // Thông báo nâng hạng cho tài xế qua socket
+                io.to(`driver_${trip.driverId}`).emit('driver:rank_upgraded', {
+                  oldRank: rankResult.oldRank,
+                  newRank: rankResult.newRank,
+                  message: `Chúc mừng! Bạn đã được nâng cấp lên hạng ${rankResult.newRank}`
+                });
+              }
+            }
           }
         }, { timeout: 15000 });
 

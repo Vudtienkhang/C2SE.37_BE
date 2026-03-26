@@ -59,6 +59,7 @@ export const getAllDrivers = async () => {
                     email: true,
                 }
             },
+            DriverRank: true,
             documents: {
                 include: {
                     documentType: true
@@ -204,6 +205,63 @@ export const updateDriverRank = async (id, data) => {
             updatedAt: new Date()
         }
     });
+};
+
+/**
+ * Tạo mới hạng tài xế
+ */
+export const createDriverRank = async (data) => {
+    const { name, code, minTrips, driverRate, platformRate, acceptanceRate } = data;
+    return await prisma.driverRank.create({
+        data: {
+            name,
+            code,
+            minTrips: parseInt(minTrips),
+            driverRate: parseFloat(driverRate),
+            platformRate: parseFloat(platformRate),
+            acceptanceRate: acceptanceRate || "92%",
+            updatedAt: new Date()
+        }
+    });
+};
+
+/**
+ * Tăng số chuyến đi và kiểm tra nâng hạng cho tài xế sau khi hoàn thành chuyến
+ */
+export const updateDriverRankAfterTrip = async (driverId) => {
+    try {
+        // 1. Tăng số chuyến đi của tài xế
+        const driver = await prisma.driver.update({
+            where: { id: parseInt(driverId) },
+            data: { totalTrips: { increment: 1 } },
+            include: { DriverRank: true }
+        });
+
+        console.log(`[RANK] Driver ${driverId} totalTrips increased to ${driver.totalTrips}`);
+
+        // 2. Lấy danh sách hạng sắp xếp theo minTrips giảm dần
+        const ranks = await prisma.driverRank.findMany({
+            orderBy: { minTrips: 'desc' }
+        });
+
+        // 3. Tìm hạng cao nhất phù hợp
+        const newRank = ranks.find(r => driver.totalTrips >= r.minTrips);
+
+        // 4. Cập nhật nếu hạng mới khác hạng cũ
+        if (newRank && newRank.id !== driver.rankId) {
+            await prisma.driver.update({
+                where: { id: driver.id },
+                data: { rankId: newRank.id }
+            });
+            console.log(`[RANK] Driver ${driverId} upgraded from ${driver.DriverRank?.name || 'Mới'} to ${newRank.name}`);
+            return { upgraded: true, oldRank: driver.DriverRank?.name, newRank: newRank.name };
+        }
+
+        return { upgraded: false };
+    } catch (error) {
+        console.error('Lỗi updateDriverRankAfterTrip:', error);
+        return { upgraded: false, error: error.message };
+    }
 };
 
 /**
