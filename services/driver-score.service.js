@@ -1,5 +1,6 @@
 import prisma from '../prisma/prisma.js';
 import redis from '../lib/redis.js';
+import { getConfig } from './config.service.js';
 
 export const SCORE_REASONS = {
   TRIP_COMPLETED: 'Hoàn thành chuyến đi',
@@ -9,16 +10,25 @@ export const SCORE_REASONS = {
   RATING_2_STAR: 'Đánh giá 2 sao',
   RATING_1_STAR: 'Đánh giá 1 sao',
   TRIP_CANCELLED: 'Hủy chuyến đi',
+  PEAK_HOUR_BONUS: 'Thưởng giờ cao điểm',
+  NIGHT_TRIP_BONUS: 'Thưởng chuyến đi đêm',
+  LONG_TRIP_BONUS: 'Thưởng chuyến đi đường dài',
+  CUSTOMER_COMPLAINT: 'Khiếu nại từ khách hàng',
 };
 
-const SCORE_VALUES = {
+// Mặc định (Fallback) nếu DB không có cấu hình
+const DEFAULT_SCORE_VALUES = {
   TRIP_COMPLETED: 10,
   RATING_5_STAR: 5,
   RATING_4_STAR: 2,
   RATING_3_STAR: 0,
   RATING_2_STAR: -5,
   RATING_1_STAR: -10,
-  TRIP_CANCELLED: -15,
+  TRIP_CANCELLED: -20,
+  PEAK_HOUR_BONUS: 5,
+  NIGHT_TRIP_BONUS: 5,
+  LONG_TRIP_BONUS: 10,
+  CUSTOMER_COMPLAINT: -50,
 };
 
 /**
@@ -28,7 +38,10 @@ const SCORE_VALUES = {
  * @param {number} [tripId] - (Optional) ID chuyến đi liên quan
  */
 export const updateDriverScore = async (driverId, reason, tripId = null) => {
-  const amount = SCORE_VALUES[reason] || 0;
+  // Lấy bảng điểm từ Config (Động)
+  const policy = await getConfig('DRIVER_SCORE_POLICY', DEFAULT_SCORE_VALUES);
+  const amount = policy[reason] || 0;
+  
   if (amount === 0 && reason !== 'RATING_3_STAR') return;
 
   try {
@@ -56,6 +69,24 @@ export const updateDriverScore = async (driverId, reason, tripId = null) => {
     // 3. Đồng bộ lên Redis Leaderboard (ZSET)
     // Key: 'leaderboard:drivers'
     await redis.zadd('leaderboard:drivers', result.totalPoints, driverId.toString());
+
+    // Phát sự kiện real-time qua socket tới tài xế
+    try {
+        const { emitToUser } = await import('./socket.service.js');
+        const driver = await prisma.driver.findUnique({ 
+            where: { id: driverId }, 
+            select: { userId: true } 
+        });
+        if (driver) {
+            emitToUser(driver.userId, 'score:updated', {
+                amount,
+                reason: SCORE_REASONS[reason] || reason,
+                totalPoints: result.totalPoints
+            });
+        }
+    } catch (socketError) {
+        console.warn('[SCORE] Failed to emit socket event:', socketError.message);
+    }
 
     console.log(`[SCORE] Updated driver ${driverId}: ${amount} pts (Reason: ${reason}). Total: ${result.totalPoints}`);
     return result;
@@ -96,4 +127,23 @@ export const getTopDrivers = async (limit = 10) => {
     console.error('[SCORE ERROR] Failed to fetch top drivers:', error);
     return [];
   }
+};
+
+/**
+ * Lấy lịch sử điểm của tài xế
+ * @param {number} userId - ID người dùng
+ */
+export const getPointLogs = async (userId) => {
+  const driver = await prisma.driver.findUnique({
+    where: { userId: parseInt(userId) },
+    select: { id: true }
+  });
+
+  if (!driver) throw new Error('Driver not found');
+
+  return prisma.driverPointLog.findMany({
+    where: { driverId: driver.id },
+    orderBy: { createdAt: 'desc' },
+    take: 50
+  });
 };

@@ -7,4 +7,7 @@ const router = express.Router();
 // Lấy thông tin thu nhập (tài xế đã login)
 router.get('/earnings', verifyToken, driverController.getEarnings);
 
+// Lấy lịch sử điểm thưởng/phạt
+router.get('/points/history', verifyToken, driverController.getPointHistory);
+
 export default router;

@@ -345,6 +345,12 @@ export const initSocket = (server) => {
         }
 
         if (status === 'cancelled') {
+          console.log(`[SOCKET] Trip #${tripId} CANCELLED by driver. Adding worker job...`);
+          await tripTasksQueue.add('PROCESS_TRIP_CANCELLATION', {
+            tripId: trip.id,
+            driverId: trip.driverId
+          });
+          
           await prisma.driver.update({
             where: { id: trip.driverId },
             data: { isBusy: false }
