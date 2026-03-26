@@ -24,6 +24,9 @@ const worker = new Worker('trip-tasks', async (job) => {
       case 'PROCESS_TRIP_COMPLETION':
         await processTripCompletion(data);
         break;
+      case 'PROCESS_TRIP_CANCELLATION':
+        await processTripCancellation(data);
+        break;
       case 'PROCESS_REVIEW_SCORE':
         await processReviewScore(data);
         break;
@@ -43,7 +46,11 @@ const worker = new Worker('trip-tasks', async (job) => {
  * (Trừ tiền ví, áp dụng voucher, v.v.)
  */
 async function processTripAcceptance(data) {
-  const { tripId, passengerId, paymentMethod, finalPrice, voucherId, discountAmount } = data;
+  const { tripId: rawTripId, passengerId: rawPassengerId, paymentMethod, finalPrice, voucherId: rawVoucherId, discountAmount } = data;
+  const tripId = parseInt(rawTripId);
+  const passengerId = parseInt(rawPassengerId);
+  const voucherId = rawVoucherId ? parseInt(rawVoucherId) : null;
+
   console.log(`[PROCESS_TRIP_ACCEPTANCE] Trip #${tripId}, Method: ${paymentMethod}, Final: ${finalPrice}, Discount: ${discountAmount}`);
 
   await prisma.$transaction(async (tx) => {
@@ -232,11 +239,34 @@ async function processTripCompletion(data) {
     try {
       const finalDriverId = driverId || tripResult.driverId; 
 
-      // 4. Cập nhật hạng tài xế
-      await authAdminService.updateDriverRankAfterTrip(finalDriverId).catch(e => console.error('[RANK ERROR]', e));
-      
-      // 5. CỘNG ĐIỂM HOÀN THÀNH CHUYẾN ĐI
+      // 5. CỘNG ĐIỂM HOÀN THÀNH CHUYẾN ĐI & THƯỞNG
       await updateDriverScore(finalDriverId, 'TRIP_COMPLETED', tripId).catch(e => console.error('[SCORE ERROR]', e));
+
+      // Thưởng đường dài (> 15km)
+      if (tripResult.distanceKm > 15) {
+        await updateDriverScore(finalDriverId, 'LONG_TRIP_BONUS', tripId).catch(e => console.error('[SCORE ERROR]', e));
+      }
+
+      // Thưởng giờ đêm (22:00 - 05:00)
+      const hour = new Date().getHours();
+      if (hour >= 22 || hour < 5) {
+        await updateDriverScore(finalDriverId, 'NIGHT_TRIP_BONUS', tripId).catch(e => console.error('[SCORE ERROR]', e));
+      }
+
+      // Thưởng giờ cao điểm (07:00-09:00, 16:30-19:00)
+      const now = new Date();
+      const currentHour = now.getHours();
+      const currentMin = now.getMinutes();
+      const isRushHour = (currentHour === 7 || currentHour === 8) || 
+                         (currentHour === 16 && currentMin >= 30) || 
+                         (currentHour === 17 || currentHour === 18);
+      
+      if (isRushHour) {
+        await updateDriverScore(finalDriverId, 'PEAK_HOUR_BONUS', tripId).catch(e => console.error('[SCORE ERROR]', e));
+      }
+
+      // 4. Cập nhật hạng tài xế (Sau khi đã cộng điểm và tăng số chuyến)
+      await authAdminService.updateDriverRankAfterTrip(finalDriverId).catch(e => console.error('[RANK ERROR]', e));
 
       // 6. THÔNG BÁO CẬP NHẬT VÍ (REAL-TIME)
       const finalWallet = await prisma.wallet.findUnique({ 
@@ -272,6 +302,24 @@ async function processReviewScore(data) {
 
   if (reason) {
     await updateDriverScore(driverId, reason, tripId);
+  }
+}
+
+/**
+ * Xử lý trừ điểm khi chuyến đi bị hủy bởi tài xế
+ */
+async function processTripCancellation(data) {
+  const { tripId, driverId } = data;
+  console.log(`[WORKER] Starting PROCESS_TRIP_CANCELLATION for Trip #${tripId}`);
+  
+  try {
+    // Trừ điểm hủy chuyến
+    await updateDriverScore(driverId, 'TRIP_CANCELLED', tripId);
+    
+    // Kiểm tra lại hạng (có thể bị hạ hạng nếu điểm xuống thấp)
+    await authAdminService.updateDriverRankAfterTrip(driverId);
+  } catch (error) {
+    console.error(`[WORKER ERROR] Cancellation score update failed for Trip #${tripId}:`, error);
   }
 }
 

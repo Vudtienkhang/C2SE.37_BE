@@ -116,7 +116,8 @@ export const getUserById = async (id) => {
   });
 
   const driver = await prisma.driver.findUnique({
-    where: { userId: numericId }
+    where: { userId: numericId },
+    include: { DriverRank: true }
   });
 
   const wallet = await prisma.wallet.findUnique({
@@ -129,6 +130,25 @@ export const getUserById = async (id) => {
     }
   });
 
+  // Tính toán thông tin hạng tiếp theo cho tài xế
+  let nextRankInfo = null;
+  if (driver && driver.DriverRank) {
+    const nextRank = await prisma.driverRank.findFirst({
+      where: {
+        minPoints: { gt: driver.DriverRank.minPoints || 0 }
+      },
+      orderBy: { minPoints: 'asc' }
+    });
+
+    if (nextRank) {
+      nextRankInfo = {
+        name: nextRank.name,
+        pointsNeeded: (nextRank.minPoints || 0) - driver.totalPoints,
+        progress: driver.totalPoints / (nextRank.minPoints || 1)
+      };
+    }
+  }
+
   return {
     id: user.id,
     fullName: user.fullName,
@@ -136,9 +156,15 @@ export const getUserById = async (id) => {
     email: user.email,
     roleId: user.roleId,
     avatarUrl: customer?.avatarUrl || "https://i.pravatar.cc/300",
-    totalRides: 0,
-    rating: 5.0,
-    driver: driver ? { id: driver.id, status: driver.status } : null,
+    totalRides: driver?.totalTrips || 0,
+    rating: driver?.ratingAvg || 5.0,
+    driver: driver ? { 
+      id: driver.id, 
+      status: driver.status,
+      totalPoints: driver.totalPoints,
+      rank: driver.DriverRank,
+      nextRank: nextRankInfo
+    } : null,
     wallet: wallet ? { 
       id: wallet.id, 
       balance: wallet.balance,
