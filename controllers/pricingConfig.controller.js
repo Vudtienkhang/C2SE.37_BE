@@ -116,7 +116,7 @@ export const calculatePrice = async (req, res) => {
 
     const currentHour = new Date().getHours();
     const autoIsNight = isNight ?? (currentHour >= 22 || currentHour < 5);
-    const autoIsRushHour = isRushHour ?? ((currentHour >= 7 && currentHour <= 9) || (currentHour >= 16 && currentHour <= 19));
+    const autoIsRushHour = isRushHour ?? ((currentHour >= 7 && currentHour <= 8) || (currentHour >= 16 && currentHour <= 19));
 
     const priceResult = await pricingService.calculateTripPrice({
       distanceKm: parseFloat(distanceKm),

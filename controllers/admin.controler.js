@@ -216,6 +216,20 @@ export const updateDriverRankController = async (req, res) => {
     }
 };
 
+export const createDriverRankController = async (req, res) => {
+    try {
+        const rank = await authAdmin.createDriverRank(req.body);
+        return res.status(201).json({
+            success: true,
+            message: 'Tạo hạng tài xế mới thành công',
+            data: rank
+        });
+    } catch (error) {
+        console.error('Lỗi createDriverRankController:', error);
+        return res.status(500).json({ success: false, message: 'Lỗi máy chủ nội bộ' });
+    }
+};
+
 export const getSystemConfigController = async (req, res) => {
     try {
         const { key } = req.params;

@@ -111,6 +111,28 @@ export const uploadChatMessageImageToSupabase = async (fileBuffer, mimeType) => 
     .from('MessageIMG')
     .upload(fileName, fileBuffer, {
       contentType: mimeType || 'image/png',
+
+/**
+ * Upload bằng chứng khiếu nại (Ảnh, Audio, Video...) lên Supabase
+ * @param {number} userId 
+ * @param {number} tripId 
+ * @param {Buffer} fileBuffer 
+ * @param {string} mimeType 
+ * @returns {Promise<string>} - Public URL của evidence
+ */
+export const uploadDisputeEvidenceToSupabase = async (userId, tripId, fileBuffer, mimeType) => {
+  // Xác định extension dựa trên mimeType
+  let ext = 'bin';
+  if (mimeType.includes('image')) ext = 'png';
+  if (mimeType.includes('audio')) ext = 'mp3';
+  if (mimeType.includes('pdf')) ext = 'pdf';
+
+  const fileName = `dispute_u${userId}_t${tripId}_${Date.now()}.${ext}`;
+  
+  const { data, error } = await supabase.storage
+    .from('dispute_evidence')
+    .upload(fileName, fileBuffer, {
+      contentType: mimeType,
       upsert: true,
     });
 
@@ -122,6 +144,12 @@ export const uploadChatMessageImageToSupabase = async (fileBuffer, mimeType) => 
   // 3. Lấy URL công khai
   const { data: publicUrlData } = supabase.storage
     .from('MessageIMG')
+    console.error('Lỗi upload bằng chứng Supabase:', error);
+    throw new Error('Lỗi khi tải bằng chứng lên máy chủ.');
+  }
+
+  const { data: publicUrlData } = supabase.storage
+    .from('dispute_evidence')
     .getPublicUrl(fileName);
 
   return publicUrlData.publicUrl;

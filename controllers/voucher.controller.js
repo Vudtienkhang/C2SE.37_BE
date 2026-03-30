@@ -89,6 +89,7 @@ export const createVoucher = async (req, res) => {
         startDate: new Date(startDate),
         endDate: endDate ? new Date(endDate) : null,
         isActive: isActive !== undefined ? Boolean(isActive) : true,
+        isOneTimePerUser: isOneTimePerUser !== undefined ? Boolean(isOneTimePerUser) : true,
       },
     });
 
@@ -141,6 +142,7 @@ export const updateVoucher = async (req, res) => {
         startDate: startDate ? new Date(startDate) : undefined,
         endDate: endDate !== undefined ? (endDate ? new Date(endDate) : null) : undefined,
         isActive: isActive !== undefined ? Boolean(isActive) : undefined,
+        isOneTimePerUser: isOneTimePerUser !== undefined ? Boolean(isOneTimePerUser) : undefined,
       },
     });
 
@@ -264,6 +266,27 @@ export const validateVoucher = async (req, res) => {
         success: false, 
         message: `Đơn hàng tối thiểu để áp dụng là ${voucher.minOrderValue.toLocaleString('vi-VN')}đ` 
       });
+    }
+
+    // Kiểm tra giới hạn 1 lần sử dụng cho mỗi tài khoản
+    if (voucher.isOneTimePerUser) {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: 'Vui lòng đăng nhập để sử dụng mã này' });
+      }
+
+      const existingUsage = await prisma.voucherUsage.findFirst({
+        where: {
+          voucherId: voucher.id,
+          userId: userId,
+          // Có thể thêm điều kiện Trip status nếu cần, 
+          // nhưng hiện tại chỉ cần check xem đã có bản ghi nào chưa
+        }
+      });
+
+      if (existingUsage) {
+        return res.status(400).json({ success: false, message: 'Bạn đã sử dụng mã giảm giá này cho một đơn hàng khác.' });
+      }
     }
 
     // Tính toán số tiền được giảm
