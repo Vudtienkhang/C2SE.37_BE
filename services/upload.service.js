@@ -102,15 +102,6 @@ export const uploadDriverDocumentToSupabase = async (userId, documentTypeId, fil
 
   return doc;
 };
-export const uploadChatMessageImageToSupabase = async (fileBuffer, mimeType) => {
-  // 1. Tạo tên file độc nhất
-  const fileName = `chat_${Date.now()}.png`;
-  
-  // 2. Upload file lên bucket 'MessageIMG'
-  const { error } = await supabase.storage
-    .from('MessageIMG')
-    .upload(fileName, fileBuffer, {
-      contentType: mimeType || 'image/png',
 
 /**
  * Upload bằng chứng khiếu nại (Ảnh, Audio, Video...) lên Supabase
@@ -137,13 +128,6 @@ export const uploadDisputeEvidenceToSupabase = async (userId, tripId, fileBuffer
     });
 
   if (error) {
-    console.error('Lỗi upload ảnh chat Supabase:', error);
-    throw new Error('Lỗi khi tải ảnh lên máy chủ.');
-  }
-
-  // 3. Lấy URL công khai
-  const { data: publicUrlData } = supabase.storage
-    .from('MessageIMG')
     console.error('Lỗi upload bằng chứng Supabase:', error);
     throw new Error('Lỗi khi tải bằng chứng lên máy chủ.');
   }
