@@ -1,4 +1,7 @@
 import prisma from '../prisma/prisma.js';
+import crypto from 'crypto';
+
+const SECRET_KEY = process.env.JWT_SECRET || 'safeway_super_secret_key';
 
 /**
  * Lấy lịch sử chuyến đi của người dùng (khách hàng hoặc tài xế)
@@ -96,4 +99,53 @@ export const fetchTripById = async (tripId) => {
       },
     },
   });
+};
+
+/**
+ * Tạo chữ ký bảo mật cho chuyến đi (không dùng Database)
+ * @param {number} tripId 
+ * @returns {string} - Chữ ký (Token)
+ */
+export const generateTripSignature = (tripId) => {
+  return crypto
+    .createHmac('sha256', SECRET_KEY)
+    .update(tripId.toString())
+    .digest('hex');
+};
+
+/**
+ * Lấy chuyến đi và xác thực chữ ký (Cho trang Web công khai)
+ * @param {number} tripId 
+ * @param {string} token 
+ * @returns {Promise<Object|null>}
+ */
+export const verifyPublicTrip = async (tripId, token) => {
+  const id = parseInt(tripId);
+  const expectedToken = generateTripSignature(id);
+
+  if (token !== expectedToken) {
+    throw new Error('Mã xác thực không hợp lệ');
+  }
+
+  const trip = await prisma.trip.findUnique({
+    where: { id },
+    include: {
+      customer: { select: { fullName: true, avatarUrl: true } },
+      driver: { 
+        include: { 
+          user: { select: { fullName: true, phone: true, avatarUrl: true } }
+        } 
+      },
+      vehicle: true,
+    },
+  });
+
+  if (!trip) return null;
+
+  // Chỉ cho phép xem nếu chưa hoàn thành hoặc hủy
+  if (['completed', 'cancelled'].includes(trip.status)) {
+    throw new Error('Chuyến đi đã kết thúc hoặc bị hủy');
+  }
+
+  return trip;
 };

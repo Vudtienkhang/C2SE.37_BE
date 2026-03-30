@@ -5,6 +5,8 @@ const router = express.Router();
 
 router.get('/history/:userId', tripController.getTripHistory);
 router.get('/current/:userId', tripController.getCurrentTrip);
+router.get('/share-public', tripController.getPublicTrip);
+router.post('/:id/share', tripController.shareTrip);
 router.get('/:id', tripController.getTripById);
 
 export default router;
