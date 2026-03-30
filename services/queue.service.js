@@ -313,13 +313,31 @@ async function processTripCancellation(data) {
   console.log(`[WORKER] Starting PROCESS_TRIP_CANCELLATION for Trip #${tripId}`);
   
   try {
-    // Trừ điểm hủy chuyến
-    await updateDriverScore(driverId, 'TRIP_CANCELLED', tripId);
-    
-    // Kiểm tra lại hạng (có thể bị hạ hạng nếu điểm xuống thấp)
-    await authAdminService.updateDriverRankAfterTrip(driverId);
+    // 1. Hoàn lại Voucher (nếu có sử dụng)
+    const usage = await prisma.voucherUsage.findFirst({
+      where: { tripId: parseInt(tripId) }
+    });
+
+    if (usage) {
+      await prisma.$transaction([
+        prisma.voucherUsage.delete({ where: { id: usage.id } }),
+        prisma.voucher.update({
+          where: { id: usage.voucherId },
+          data: { usedCount: { decrement: 1 } }
+        })
+      ]);
+      console.log(`[WORKER] Reverted voucher usage for Trip #${tripId}, Voucher #${usage.voucherId}`);
+    }
+
+    // 2. Trừ điểm hủy chuyến (nếu có tài xế)
+    if (driverId) {
+      await updateDriverScore(driverId, 'TRIP_CANCELLED', tripId);
+      
+      // Kiểm tra lại hạng (có thể bị hạ hạng nếu điểm xuống thấp)
+      await authAdminService.updateDriverRankAfterTrip(driverId);
+    }
   } catch (error) {
-    console.error(`[WORKER ERROR] Cancellation score update failed for Trip #${tripId}:`, error);
+    console.error(`[WORKER ERROR] Cancellation tasks failed for Trip #${tripId}:`, error);
   }
 }
 

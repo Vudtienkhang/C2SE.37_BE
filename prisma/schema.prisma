@@ -270,7 +270,8 @@ model Voucher {
   target        String         @default("all")
   startDate     DateTime
   endDate       DateTime?
-isActive      Boolean        @default(true)
+  isActive      Boolean        @default(true)
+  isOneTimePerUser Boolean     @default(true)
   usages        VoucherUsage[]
 }
 
