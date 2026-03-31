@@ -13,6 +13,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@aws-sdk/client-rekognition": "^3.1020.0",
     "@supabase/supabase-js": "^2.99.1",
     "bcryptjs": "^3.0.3",
     "bullmq": "^5.71.1",
