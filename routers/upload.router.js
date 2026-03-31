@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { uploadAvatar, uploadDriverDocument } from "../controllers/upload.controller.js";
+import { uploadAvatar, uploadDriverDocument, uploadChatImage } from "../controllers/upload.controller.js";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -11,4 +11,7 @@ router.post('/profile/:id/avatar', upload.single('avatar'), uploadAvatar);
 // Route POST /api/auth/upload/driver-document/:userId/:documentTypeId
 router.post('/driver-document/:userId/:documentTypeId', upload.single('document'), uploadDriverDocument);
 
-export default router;
+// Route POST /api/auth/upload/chat/:tripId/image
+router.post('/chat/:tripId/image', upload.single('image'), uploadChatImage);
+
+export default router;

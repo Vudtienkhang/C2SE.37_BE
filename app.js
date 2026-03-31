@@ -16,6 +16,7 @@ app.use((req, res, next) => {
 
 // Routers
 import authRouter from './routers/auth.router.js';
+import chatRouter from './routers/chat.router.js';
 import uploadRouter from './routers/upload.router.js';
 import addressRouter from './routers/address.router.js';
 import adminRouter from './routers/admin.router.js';
@@ -34,6 +35,7 @@ import reviewRouter from './routers/review.router.js';
 import disputeRouter from './routers/dispute.router.js';
 
 app.use('/api/auth', authRouter);
+app.use('/api/chat', chatRouter);
 app.use('/api/auth/upload', uploadRouter);
 app.use('/api/addresses', addressRouter);
 app.use('/api/admin', adminRouter);

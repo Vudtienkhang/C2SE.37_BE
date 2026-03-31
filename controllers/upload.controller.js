@@ -59,3 +59,37 @@ export const uploadDriverDocument = async (req, res) => {
     });
   }
 };
+
+export const uploadChatImage = async (req, res) => {
+  try {
+    const { tripId } = req.params;
+    const { senderId } = req.body;
+    const file = req.file;
+
+    if (!tripId) {
+      return res.status(400).json({ success: false, message: 'Thiếu tripId.' });
+    }
+
+    if (!senderId) {
+      return res.status(400).json({ success: false, message: 'Thiếu senderId.' });
+    }
+
+    if (!file) {
+      return res.status(400).json({ success: false, message: 'Không tìm thấy file ảnh.' });
+    }
+
+    const fileUrl = await uploadService.uploadChatImageToSupabase(tripId, senderId, file.buffer, file.mimetype);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Tải lên ảnh chat thành công',
+      data: { fileUrl },
+    });
+  } catch (error) {
+    console.error('Lỗi uploadChatImage controller:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Lỗi máy chủ nội bộ',
+    });
+  }
+};

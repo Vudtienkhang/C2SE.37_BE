@@ -138,3 +138,37 @@ export const uploadDisputeEvidenceToSupabase = async (userId, tripId, fileBuffer
 
   return publicUrlData.publicUrl;
 };
+
+/**
+ * Upload ảnh chat lên Supabase (Bucket: MessIMG)
+ * @param {number} tripId 
+ * @param {number} senderId 
+ * @param {Buffer} fileBuffer 
+ * @param {string} mimeType 
+ * @returns {Promise<string>} - Public URL của ảnh chat
+ */
+export const uploadChatImageToSupabase = async (tripId, senderId, fileBuffer, mimeType) => {
+  // Xác định extension dựa trên mimeType
+  let ext = 'png';
+  if (mimeType.includes('jpeg') || mimeType.includes('jpg')) ext = 'jpg';
+  
+  const fileName = `chat_trip${tripId}_user${senderId}_${Date.now()}.${ext}`;
+  
+  const { data, error } = await supabase.storage
+    .from('MessIMG')
+    .upload(fileName, fileBuffer, {
+      contentType: mimeType || 'image/png',
+      upsert: true,
+    });
+
+  if (error) {
+    console.error('Lỗi upload ảnh chat Supabase:', error);
+    throw new Error('Lỗi khi tải ảnh chat lên máy chủ.');
+  }
+
+  const { data: publicUrlData } = supabase.storage
+    .from('MessIMG')
+    .getPublicUrl(fileName);
+
+  return publicUrlData.publicUrl;
+};

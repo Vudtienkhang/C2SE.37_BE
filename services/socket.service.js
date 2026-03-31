@@ -240,6 +240,7 @@ export const initSocket = (server) => {
               routePolyline: pending.data.routePolyline,
               vehicleId: pending.data.vehicleId ? parseInt(pending.data.vehicleId) : null,
               status: 'accepted',
+              conversation: { create: {} },
             },
             include: {
               driver: { include: { user: true } }
@@ -385,6 +386,61 @@ export const initSocket = (server) => {
         } catch (err) {
           console.error('Error saving trip location history:', err);
         }
+      }
+    });
+
+    // ==========================================
+    // --- XỬ LÝ CHAT ---
+    // ==========================================
+
+    socket.on('chat:join', (data) => {
+      const { tripId } = data;
+      socket.join(`chat_${tripId}`);
+      console.log(`Socket ${socket.id} joined chat room for trip ${tripId}`);
+    });
+
+    socket.on('chat:send_message', async (data) => {
+      try {
+        const { tripId, senderId, content, messageType = 'text', fileUrl } = data;
+        
+        // 1. Tìm conversation của trip
+        const conversation = await prisma.conversation.findUnique({
+          where: { tripId: parseInt(tripId) }
+        });
+
+        if (!conversation) {
+          console.error(`[CHAT ERROR] Conversation not found for trip ${tripId}`);
+          return;
+        }
+
+        // 2. Lưu message vào DB
+        const message = await prisma.message.create({
+          data: {
+            conversationId: conversation.id,
+            senderId: parseInt(senderId),
+            content: content,
+            messageType: messageType,
+            fileUrl: fileUrl || null,
+          },
+          include: {
+            sender: {
+              select: {
+                fullName: true,
+                avatarUrl: true
+              }
+            }
+          }
+        });
+
+        // 3. Broadcast tới các bên trong trip
+        // Gửi qua room trip_ để những người đang ở màn hình tracking nhận được badge
+        io.to(`trip_${tripId}`).emit('chat:receive_message', message);
+        
+        // Gửi qua room chat_ (nếu có tách biệt)
+        io.to(`chat_${tripId}`).emit('chat:new_message', message);
+
+      } catch (error) {
+        console.error('[CHAT ERROR] Send message error:', error);
       }
     });
 
