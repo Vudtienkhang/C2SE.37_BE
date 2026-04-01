@@ -160,24 +160,24 @@ export const verifyFace = async (req, res) => {
 
         const faceDetail = detectResponse.FaceDetails[0];
         const pose = faceDetail.Pose;
-        const pitch = pose?.Pitch || 0; 
+        const yaw = pose?.Yaw || 0; 
 
-        // Theo chuẩn AWS: 
-        // Pitch > 0: Cúi đầu xuống (Looking Down)
-        // Pitch < 0: Ngẩng đầu lên (Looking Up)
-        console.log(`[BACKEND] Liveness Result: Pitch=${pitch.toFixed(2)} độ`);
+        // Theo chuẩn AWS Rekognition: 
+        // Yaw > 15: Xoay mặt sang TRÁI (Looking Left)
+        // Yaw < -15: Xoay mặt sang PHẢI (Looking Right)
+        console.log(`[BACKEND] Liveness Result: Yaw=${yaw.toFixed(2)} độ`);
 
         // Đánh giá dựa trên yêu cầu ngẫu nhiên
-        if (challengeType === 'look_down' && pitch < 5) {
-           return res.status(400).json({ message: 'Liveness thất bại: Yêu cầu CÚI NHẸ ĐẦU nhưng ảnh đang nhìn thẳng hoặc ngẩng lên.' });
+        if (challengeType === 'look_left' && yaw < 15) {
+           return res.status(400).json({ message: 'Liveness thất bại: Yêu cầu XOAY MẶT SANG TRÁI nhưng ảnh đang nhìn thẳng hoặc xoay phải.' });
         }
         
-        if (challengeType === 'look_up' && pitch > -5) {
-           return res.status(400).json({ message: 'Liveness thất bại: Yêu cầu NGẨNG ĐẦU LÊN nhưng ảnh đang nhìn thẳng hoặc cúi xuống.' });
+        if (challengeType === 'look_right' && yaw > -15) {
+           return res.status(400).json({ message: 'Liveness thất bại: Yêu cầu XOAY MẶT SANG PHẢI nhưng ảnh đang nhìn thẳng hoặc xoay trái.' });
         }
 
-        if (challengeType === 'look_straight' && (pitch > 15 || pitch < -15)) {
-           return res.status(400).json({ message: 'Liveness thất bại: Yêu cầu NHÌN THẲNG nhưng ảnh đang bị nghiêng/cúi đầu.' });
+        if (challengeType === 'look_straight' && (yaw > 15 || yaw < -15)) {
+           return res.status(400).json({ message: 'Liveness thất bại: Yêu cầu NHÌN THẲNG nhưng ảnh đang bị xoay mặt.' });
         }
 
         console.log(`[BACKEND] Liveness Passed: Tài xế đã làm đúng challenge.`);
