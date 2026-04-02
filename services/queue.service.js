@@ -313,8 +313,8 @@ async function processReviewScore(data) {
  * Xử lý trừ điểm khi chuyến đi bị hủy bởi tài xế
  */
 async function processTripCancellation(data) {
-  const { tripId, driverId } = data;
-  console.log(`[WORKER] Starting PROCESS_TRIP_CANCELLATION for Trip #${tripId}`);
+  const { tripId, driverId, cancelledBy } = data;
+  console.log(`[WORKER] Starting PROCESS_TRIP_CANCELLATION for Trip #${tripId} by ${cancelledBy}`);
   
   try {
     // 1. Hoàn lại Voucher (nếu có sử dụng)
@@ -333,12 +333,68 @@ async function processTripCancellation(data) {
       console.log(`[WORKER] Reverted voucher usage for Trip #${tripId}, Voucher #${usage.voucherId}`);
     }
 
-    // 2. Trừ điểm hủy chuyến (nếu có tài xế)
-    if (driverId) {
+    // 1.5. Hoàn tiền vào ví (nếu thanh toán bằng ví và đã trừ tiền)
+    const walletPayments = await prisma.payment.findMany({
+      where: { 
+        tripId: parseInt(tripId), 
+        method: 'WALLET', 
+        status: 'success' 
+      }
+    });
+
+    for (const payment of walletPayments) {
+      const tripDetail = await prisma.trip.findUnique({
+        where: { id: parseInt(tripId) },
+        select: { customer: { select: { userId: true } } }
+      });
+
+      if (tripDetail?.customer?.userId) {
+        const wallet = await prisma.wallet.findUnique({
+          where: { userId: tripDetail.customer.userId }
+        });
+
+        if (wallet) {
+          await prisma.$transaction([
+            prisma.wallet.update({
+              where: { id: wallet.id },
+              data: { balance: { increment: payment.amount } }
+            }),
+            prisma.walletTransaction.create({
+              data: {
+                walletId: wallet.id,
+                type: 'refund',
+                amount: payment.amount,
+                description: `Hoàn tiền huỷ chuyến đi #${tripId}`,
+                reference: `trip_cancel_${tripId}`
+              }
+            }),
+            prisma.payment.update({
+              where: { id: payment.id },
+              data: { status: 'refunded' }
+            })
+          ]);
+          console.log(`[WORKER] Refunded ${payment.amount} to user ${tripDetail.customer.userId} for cancelled Trip #${tripId}`);
+
+          // Cập nhật lại số dư trên app
+          try {
+            socketService.emitToUser(tripDetail.customer.userId, 'wallet:updated', { 
+              balance: wallet.balance + payment.amount 
+            });
+          } catch (e) {
+             console.error("[WORKER] Emit wallet:updated failed", e);
+          }
+        }
+      }
+    }
+
+    // 2. Trừ điểm hủy chuyến (chỉ khi tài xế huỷ)
+    if (driverId && cancelledBy === 'driver') {
       await updateDriverScore(driverId, 'TRIP_CANCELLED', tripId);
       
       // Kiểm tra lại hạng (có thể bị hạ hạng nếu điểm xuống thấp)
       await authAdminService.updateDriverRankAfterTrip(driverId);
+    } else {
+      console.log(`[WORKER] Trip #${tripId} cancelled by ${cancelledBy}. No point deduction for driver.`);
     }
   } catch (error) {
     console.error(`[WORKER ERROR] Cancellation tasks failed for Trip #${tripId}:`, error);

@@ -173,6 +173,8 @@ model Trip {
   tipTotalAmount      Float?
   status              TripStatus              @default(requested)
   paymentStatus       PaymentStatus           @default(pending)
+  cancelledBy         String?
+  cancelReason        String?
   createdAt           DateTime                @default(now())
   routePolyline       String?
   conversation        Conversation?
