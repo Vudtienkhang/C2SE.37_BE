@@ -94,7 +94,7 @@ export const loginUser = async ({ phone, password }) => {
       fullName: user.fullName,
       phone: user.phone,
       roleId: user.roleId,
-      driver: driver ? { id: driver.id, status: driver.status } : null
+      driver: driver ? { id: driver.id, status: driver.status, isOnline: driver.isOnline } : null
     },
     token
   };
@@ -161,6 +161,7 @@ export const getUserById = async (id) => {
     driver: driver ? { 
       id: driver.id, 
       status: driver.status,
+      isOnline: driver.isOnline,
       totalPoints: driver.totalPoints,
       rank: driver.DriverRank,
       nextRank: nextRankInfo

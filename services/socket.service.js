@@ -1,9 +1,9 @@
-
-      import { Server } from 'socket.io';
+import { Server } from 'socket.io';
 import prisma from '../prisma/prisma.js';
 import redis from '../lib/redis.js';
 import { tripTasksQueue } from '../lib/queue.js';
 import * as authAdminService from './admin.service.js';
+import * as pricingService from './pricing.service.js';
 
 let io;
 const pendingTrips = new Map(); // requestId -> { data, driverIds, currentIndex, timeout, customerSocketId }
@@ -345,7 +345,7 @@ export const initSocket = (server) => {
     // Cập nhật trạng thái chuyến đi (Tài xế gọi)
     socket.on('trip:update_status', async (data) => {
       try {
-        const { tripId, status } = data;
+        const { tripId, status, cancelledBy, cancelReason } = data;
         console.log(`[SOCKET] Received trip:update_status: ${status} for Trip #${tripId}`);
         
         // 1. CỘP NHẬT TRẠNG THÁI TRONG DB CHÍNH (CRITICAL)
@@ -353,7 +353,9 @@ export const initSocket = (server) => {
           where: { id: parseInt(tripId) },
           data: { 
             status: status,
-            ...(status === 'completed' ? { finalPrice: data.finalPrice || undefined } : {})
+            ...(status === 'completed' ? { finalPrice: data.finalPrice || undefined } : {}),
+            ...(status === 'cancelled' && cancelledBy ? { cancelledBy } : {}),
+            ...(status === 'cancelled' && cancelReason ? { cancelReason } : {})
           },
           include: { 
             driver: true,
@@ -372,23 +374,28 @@ export const initSocket = (server) => {
           });
           console.log(`[SOCKET] Job for Trip #${tripId} added to Queue successfully.`);
 
-          await prisma.driver.update({
-            where: { id: trip.driverId },
-            data: { isBusy: false }
-          });
+          if (trip.driverId) {
+            await prisma.driver.update({
+              where: { id: trip.driverId },
+              data: { isBusy: false }
+            });
+          }
         }
 
         if (status === 'cancelled') {
-          console.log(`[SOCKET] Trip #${tripId} CANCELLED by driver. Adding worker job...`);
+          console.log(`[SOCKET] Trip #${tripId} CANCELLED by ${cancelledBy || 'unknown'}. Adding worker job...`);
           await tripTasksQueue.add('PROCESS_TRIP_CANCELLATION', {
             tripId: trip.id,
-            driverId: trip.driverId
+            driverId: trip.driverId,
+            cancelledBy: cancelledBy || 'driver' // Mặc định driver nếu app cũ chưa gửi lên
           });
           
-          await prisma.driver.update({
-            where: { id: trip.driverId },
-            data: { isBusy: false }
-          });
+          if (trip.driverId) {
+            await prisma.driver.update({
+              where: { id: trip.driverId },
+              data: { isBusy: false }
+            });
+          }
         }
 
         // 3. THÔNG BÁO CHO CÁC BÊN NGAY LẬP TỨC
