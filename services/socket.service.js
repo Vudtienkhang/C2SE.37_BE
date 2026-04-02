@@ -135,17 +135,21 @@ export const initSocket = (server) => {
       try {
         const { 
           passengerId, 
-          driverIds: rawDriverIds, 
+          driverIds: rawDriverIds,
+          pickupLat,
+          pickupLng,
+          distance,
+          duration,
+          vehicleType,
           ...tripData 
         } = data;
 
-        // 1. NGĂN CHẶN TRÙNG LẶP: Đảm bảo Driver ID là duy nhất
+        // 1. NGĂN CHẶN TRÙNG LẶP
         const driverIds = [...new Set(rawDriverIds)];
 
-        // 2. KIỂM TRA REQUEST ĐANG CHỜ (tránh bấm nhầm nhiều lần)
+        // 2. KIỂM TRA REQUEST ĐANG CHỜ
         for (const [id, pending] of pendingTrips.entries()) {
           if (pending.data.passengerId === parseInt(passengerId)) {
-            console.warn(`[TRIP] Passenger ${passengerId} already has a pending request ${id}. Ignoring new one.`);
             socket.emit('trip:error', { message: 'Bạn đang có một yêu cầu tìm tài xế đang xử lý' });
             return;
           }
@@ -156,9 +160,18 @@ export const initSocket = (server) => {
           return;
         }
 
+        // 3. TÍNH TOÁN GIÁ CHÍNH XÁC VÀ BREAKDOWN (MỚI)
+        const priceBreakdown = await pricingService.calculateTripPrice({
+          distanceKm: parseFloat(distance),
+          durationMin: parseFloat(duration),
+          vehicleType,
+          pickupLat: parseFloat(pickupLat),
+          pickupLng: parseFloat(pickupLng)
+        });
+
         const requestId = `req_${Date.now()}_${passengerId}`;
         
-        // Lấy thông tin khách hàng (để hiển thị cho tài xế)
+        // Lấy thông tin khách hàng
         const user = await prisma.user.findUnique({
           where: { id: parseInt(passengerId) },
           select: { fullName: true, phone: true, avatarUrl: true }
@@ -167,10 +180,17 @@ export const initSocket = (server) => {
         pendingTrips.set(requestId, {
           data: {
             ...tripData,
+            ...priceBreakdown, // Bao gồm baseFare, surchargeBreakdown, systemFee, totalPrice
+            distance: parseFloat(distance),
+            duration: parseInt(duration),
+            vehicleType,
+            pickupLat,
+            pickupLng,
             passengerName: user.fullName,
             passengerAvatar: user.avatarUrl,
             passengerPhone: user.phone,
-            passengerId: parseInt(passengerId)
+            passengerId: parseInt(passengerId),
+            price: priceBreakdown.totalPrice // Ghi đè giá từ FE gửi lên bằng giá tính toán chính xác
           },
           driverIds,
           currentIndex: 0,
@@ -178,16 +198,17 @@ export const initSocket = (server) => {
           customerSocketId: socket.id
         });
 
-        console.log(`[TRIP] New sequential request ${requestId} for ${driverIds.length} drivers`);
+        console.log(`[TRIP] New request ${requestId} with calculated price ${priceBreakdown.totalPrice}`);
         
         notifyNextDriver(requestId);
-        socket.emit('trip:request_sent', { requestId });
+        socket.emit('trip:request_sent', { requestId, price: priceBreakdown.totalPrice });
 
       } catch (error) {
         console.error('[TRIP ERROR] Request error:', error);
-        socket.emit('trip:error', { message: 'Lỗi hệ thống khi gửi yêu cầu' });
+        socket.emit('trip:error', { message: 'Lỗi hệ thống khi tính giá hoặc gửi yêu cầu' });
       }
     });
+
 
     socket.on('trip:decline', (data) => {
       const { requestId } = data;
@@ -241,6 +262,17 @@ export const initSocket = (server) => {
               vehicleId: pending.data.vehicleId ? parseInt(pending.data.vehicleId) : null,
               status: 'accepted',
               conversation: { create: {} },
+              // Lưu Breakdown vào TripFeeBreakdown
+              feeBreakdowns: {
+                create: [
+                   { feeType: 'base_fare', amount: pending.data.baseFare },
+                   { feeType: 'surcharge_night', amount: pending.data.surchargeBreakdown.night },
+                   { feeType: 'surcharge_rush_hour', amount: pending.data.surchargeBreakdown.rushHour },
+                   { feeType: 'surcharge_holiday', amount: pending.data.surchargeBreakdown.holiday },
+                   { feeType: 'surcharge_weather', amount: pending.data.surchargeBreakdown.weather },
+                   { feeType: 'system_fee', amount: pending.data.systemFee },
+                ]
+              }
             },
             include: {
               driver: { include: { user: true } }
@@ -252,6 +284,7 @@ export const initSocket = (server) => {
           });
           return trip;
         });
+
 
         const trip = result;
         const discountAmount = pending.data.discountAmount || 0;

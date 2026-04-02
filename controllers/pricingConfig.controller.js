@@ -38,11 +38,12 @@ export const createPricingConfig = async (req, res) => {
     const newConfig = await prisma.pricingConfig.create({
       data: {
         ...data,
-        perKmPrice: parseFloat(data.perKmPrice),
-        holidayMultiplier: parseFloat(data.holidayMultiplier),
-        nightMultiplier: parseFloat(data.nightMultiplier),
-        rushHourMultiplier: parseFloat(data.rushHourMultiplier),
-        badWeatherFee: parseFloat(data.badWeatherFee),
+        perKmPrice: parseFloat(data.perKmPrice || 12000),
+        holidayMultiplier: parseFloat(data.holidayMultiplier || 1.0),
+        nightMultiplier: parseFloat(data.nightMultiplier || 1.3),
+        rushHourMultiplier: parseFloat(data.rushHourMultiplier || 1.2),
+        badWeatherFee: parseFloat(data.badWeatherFee || 0),
+        systemFee: parseFloat(data.systemFee || 2000),
         isActive: data.isActive === true || data.isActive === 'true'
       }
     });
@@ -58,6 +59,7 @@ export const createPricingConfig = async (req, res) => {
     res.status(400).json({ success: false, message: error.message || 'Lỗi khi tạo cấu hình' });
   }
 };
+
 
 export const updatePricingConfig = async (req, res) => {
   try {
@@ -78,6 +80,7 @@ export const updatePricingConfig = async (req, res) => {
         nightMultiplier: data.nightMultiplier ? parseFloat(data.nightMultiplier) : undefined,
         rushHourMultiplier: data.rushHourMultiplier ? parseFloat(data.rushHourMultiplier) : undefined,
         badWeatherFee: data.badWeatherFee ? parseFloat(data.badWeatherFee) : undefined,
+        systemFee: data.systemFee ? parseFloat(data.systemFee) : undefined,
         isActive: data.isActive !== undefined ? (data.isActive === true || data.isActive === 'true') : undefined
       }
     });
@@ -94,6 +97,7 @@ export const updatePricingConfig = async (req, res) => {
   }
 };
 
+
 export const deletePricingConfig = async (req, res) => {
   try {
     const { id } = req.params;
@@ -108,31 +112,28 @@ export const deletePricingConfig = async (req, res) => {
 
 export const calculatePrice = async (req, res) => {
   try {
-    const { distanceKm, durationMin, vehicleType, isNight, isRushHour, isHoliday, weather } = req.body;
+    const { distanceKm, durationMin, vehicleType, pickupLat, pickupLng, weather } = req.body;
     
     if (distanceKm === undefined || durationMin === undefined || !vehicleType) {
       return res.status(400).json({ success: false, message: 'Missing required parameters' });
     }
 
-    const currentHour = new Date().getHours();
-    const autoIsNight = isNight ?? (currentHour >= 22 || currentHour < 5);
-    const autoIsRushHour = isRushHour ?? ((currentHour >= 7 && currentHour <= 8) || (currentHour >= 16 && currentHour <= 19));
-
     const priceResult = await pricingService.calculateTripPrice({
       distanceKm: parseFloat(distanceKm),
       durationMin: parseFloat(durationMin),
       vehicleType,
-      isNight: autoIsNight,
-      isRushHour: autoIsRushHour,
-      isHoliday: isHoliday || false,
+      pickupLat: pickupLat ? parseFloat(pickupLat) : undefined,
+      pickupLng: pickupLng ? parseFloat(pickupLng) : undefined,
       weather: weather || 'auto'
     });
     
     res.status(200).json({ success: true, data: priceResult });
   } catch (error) {
+    console.error('Calculate Price Error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
 
 export const getWeatherStatus = async (req, res) => {
   try {

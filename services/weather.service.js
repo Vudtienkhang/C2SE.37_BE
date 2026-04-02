@@ -3,18 +3,25 @@ const API_KEY = process.env.OPENWEATHER_API_KEY;
 const DEFAULT_CITY = 'Da Nang'; // Can be moved to env or dynamic
 
 /**
- * Fetches current weather for a city.
- * @param {string} city 
+ * Fetches current weather by coordinates.
+ * @param {number} lat
+ * @param {number} lng
  * @returns {Promise<Object>} Weather data
  */
-export const getCurrentWeather = async (city = DEFAULT_CITY) => {
+export const getCurrentWeather = async (lat, lng) => {
   if (!API_KEY) {
     console.warn('OPENWEATHER_API_KEY is not set. Weather detection will be disabled.');
     return null;
   }
 
   try {
-    const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&appid=${API_KEY}&units=metric`;
+    let url;
+    if (lat && lng) {
+      url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lng}&appid=${API_KEY}&units=metric`;
+    } else {
+      url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(DEFAULT_CITY)}&appid=${API_KEY}&units=metric`;
+    }
+
     const response = await fetch(url);
     const data = await response.json();
 
@@ -33,3 +40,4 @@ export const getCurrentWeather = async (city = DEFAULT_CITY) => {
     return null;
   }
 };
+
