@@ -431,6 +431,89 @@ export const initSocket = (server) => {
     });
 
     // ==========================================
+    // --- XỬ LÝ SỰ KIỆN KHẨN CẤP (SOS) ---
+    // ==========================================
+    socket.on('trip:sos', async (data) => {
+      try {
+        const { tripId, callerRole, callerId, lat, lng } = data;
+        console.log(`[SOS ALERT] Signal received from Trip #${tripId} by ${callerRole}`);
+
+        let newAlert = null;
+        // 1. TRY TO SAVE TO DATABASE (PERSISTENCE)
+        try {
+          newAlert = await prisma.sOSAlert.create({
+            data: {
+              tripId: parseInt(tripId),
+              callerId: parseInt(callerId),
+              callerRole,
+              lat: lat ? parseFloat(lat) : null,
+              lng: lng ? parseFloat(lng) : null,
+              status: 'active'
+            },
+            include: {
+              trip: {
+                include: {
+                  customer: { include: { user: true } },
+                  driver: { include: { user: true } },
+                  vehicle: true
+                }
+              }
+            }
+          });
+          console.log(`[SOS ALERT] Persistent signal saved (ID: ${newAlert.id})`);
+        } catch (dbErr) {
+          console.error('[SOS DB ERROR] Failed to save alert to DB. This usually means you need to run migration:', dbErr.message);
+          // Fallback if DB save fails: Try to fetch trip info manually to send broadcast
+          try {
+            const trip = await prisma.trip.findUnique({
+              where: { id: parseInt(tripId) },
+              include: {
+                customer: { include: { user: true } },
+                driver: { include: { user: true } },
+                vehicle: true
+              }
+            });
+            if (trip) {
+               newAlert = { trip, createdAt: new Date() }; // Mock object for broadcast
+            }
+          } catch (tripErr) { 
+             console.error('[SOS] Also failed to fetch trip info:', tripErr.message);
+          }
+        }
+
+        // 2. CONSTRUCT PAYLOAD
+        if (newAlert) {
+          const payload = {
+            id: newAlert.id || 'TEMP-' + Date.now(),
+            tripId: parseInt(tripId),
+            status: newAlert.trip?.status || 'unknown',
+            callerRole,
+            callerId,
+            lat: lat || newAlert.lat,
+            lng: lng || newAlert.lng,
+            passenger: {
+              name: newAlert.trip?.customer?.fullName || newAlert.trip?.customer?.user?.fullName || 'N/A',
+              phone: newAlert.trip?.customer?.user?.phone || 'N/A'
+            },
+            driver: {
+              name: newAlert.trip?.driver?.fullName || newAlert.trip?.driver?.user?.fullName || 'N/A',
+              phone: newAlert.trip?.driver?.user?.phone || 'N/A',
+              vehiclePlate: newAlert.trip?.vehicle?.plateNumber || 'N/A'
+            },
+            timestamp: newAlert.createdAt || new Date()
+          };
+
+          // 3. BROADCAST TO ALL ADMINS
+          io.emit('admin:sos_alert', payload);
+          console.log(`[SOS ALERT] Broadcasted to admins!`);
+        }
+        
+      } catch (err) {
+        console.error('[SOS ERROR] Global failure in SOS socket:', err);
+      }
+    });
+
+    // ==========================================
     // --- XỬ LÝ CHAT ---
     // ==========================================
 
