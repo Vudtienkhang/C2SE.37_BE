@@ -22,7 +22,9 @@ import addressRouter from './routers/address.router.js';
 import adminRouter from './routers/admin.router.js';
 import documentTypeRouter from './routers/document-type.router.js';
 import pricingRouter from './routers/pricingConfig.router.js';
+import holidayRouter from './routers/holiday.router.js';
 import driverScanRouter from './routers/driver-scan.router.js';
+
 import voucherRouter from './routers/voucher.router.js';
 import driverRouter from './routers/driver.router.js';
 
@@ -41,7 +43,9 @@ app.use('/api/addresses', addressRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/document-types', documentTypeRouter);
 app.use('/api/pricing-configs', pricingRouter);
+app.use('/api/holidays', holidayRouter);
 app.use('/api/driver-scan', driverScanRouter);
+
 app.use('/api/vouchers', voucherRouter);
 app.use('/api/trips', tripRouter);
 app.use('/api/customers', customerRouter);

@@ -32,15 +32,15 @@ model User {
   customer                Customer?
   disputesCreated         Dispute[]        @relation("CreatedBy")
   disputesResolved        Dispute[]        @relation("ResolvedBy")
+  disputeLogs             DisputeLog[]
   driver                  Driver?
   driverDocumentsReviewed DriverDocument[]
   messages                Message[]
+  notifications           Notification[]
   tipLogs                 TipLog[]
   role                    Role             @relation(fields: [roleId], references: [id], onDelete: Cascade)
   voucherUsages           VoucherUsage[]
   wallet                  Wallet?
-  notifications           Notification[]
-  disputeLogs             DisputeLog[]
 }
 
 model Notification {
@@ -82,35 +82,35 @@ model SavedAddress {
 }
 
 model Driver {
-  id             Int              @id @default(autoincrement())
-  userId         Int              @unique
-  fullName       String?
-  avatarUrl      String?
-  cccdNumber     String           @unique
-  licenseNumber  String           @unique
-  licenseType    String?
-  ratingAvg      Float?
-  totalTrips     Int              @default(0)
-isOnline       Boolean          @default(false)
-  status         DriverStatus     @default(pending)
-  suspendedUntil DateTime?
-  reason         String?
-  createdAt      DateTime         @default(now())
-  currentLat     Float?
-  currentLng     Float?
-  isBusy         Boolean          @default(false)
-  lastLocationAt DateTime?
-  rankId         Int?
-  totalPoints    Float            @default(0)
-  DriverRank     DriverRank?      @relation(fields: [rankId], references: [id])
-  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  documents      DriverDocument[]
-  reviews        Review[]
-  trips          Trip[]
-  commissions    TripCommission[]
-  tips           TripTip[]
+  id              Int                     @id @default(autoincrement())
+  userId          Int                     @unique
+  fullName        String?
+  avatarUrl       String?
+  cccdNumber      String                  @unique
+  licenseNumber   String                  @unique
+  licenseType     String?
+  ratingAvg       Float?
+  totalTrips      Int                     @default(0)
+  isOnline        Boolean                 @default(false)
+  status          DriverStatus            @default(pending)
+  suspendedUntil  DateTime?
+  reason          String?
+  createdAt       DateTime                @default(now())
+  currentLat      Float?
+  currentLng      Float?
+  isBusy          Boolean                 @default(false)
+  lastLocationAt  DateTime?
+  rankId          Int?
+  totalPoints     Float                   @default(0)
+  DriverRank      DriverRank?             @relation(fields: [rankId], references: [id])
+  user            User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documents       DriverDocument[]
   locationHistory DriverLocationHistory[]
-  pointLogs      DriverPointLog[]
+  pointLogs       DriverPointLog[]
+  reviews         Review[]
+  trips           Trip[]
+  commissions     TripCommission[]
+  tips            TripTip[]
 }
 
 model DocumentType {
@@ -156,7 +156,7 @@ model CustomerVehicle {
 }
 
 model Trip {
-  id                  Int                @id @default(autoincrement())
+  id                  Int                     @id @default(autoincrement())
   customerId          Int
   driverId            Int?
   vehicleId           Int?
@@ -169,24 +169,24 @@ model Trip {
   distanceKm          Float?
   durationEstimateMin Int?
   priceEstimate       Float?
-  routePolyline       String?
   finalPrice          Float?
   tipTotalAmount      Float?
-  status              TripStatus         @default(requested)
-  paymentStatus       PaymentStatus      @default(pending)
-  createdAt           DateTime           @default(now())
+  status              TripStatus              @default(requested)
+  paymentStatus       PaymentStatus           @default(pending)
+  createdAt           DateTime                @default(now())
+  routePolyline       String?
   conversation        Conversation?
   disputes            Dispute[]
+  locationHistory     DriverLocationHistory[]
   payments            Payment[]
   review              Review?
-  customer            Customer           @relation(fields: [customerId], references: [id])
-driver              Driver?            @relation(fields: [driverId], references: [id])
-  vehicle             CustomerVehicle?   @relation(fields: [vehicleId], references: [id])
+  customer            Customer                @relation(fields: [customerId], references: [id])
+  driver              Driver?                 @relation(fields: [driverId], references: [id])
+  vehicle             CustomerVehicle?        @relation(fields: [vehicleId], references: [id])
   commissions         TripCommission[]
   feeBreakdowns       TripFeeBreakdown[]
   tips                TripTip[]
   voucherUsages       VoucherUsage[]
-  locationHistory     DriverLocationHistory[]
 
   @@index([customerId])
   @@index([driverId])
@@ -247,32 +247,32 @@ model Wallet {
 }
 
 model WalletTransaction {
-  id          Int                   @id @default(autoincrement())
+  id                   Int                   @id @default(autoincrement())
   walletId             Int
   type                 WalletTransactionType
   amount               Float
   description          String?
+  createdAt            DateTime              @default(now())
   gatewayTransactionId String?               @unique
   reference            String?
-  createdAt            DateTime              @default(now())
   wallet               Wallet                @relation(fields: [walletId], references: [id], onDelete: Cascade)
 }
 
 model Voucher {
-  id            Int            @id @default(autoincrement())
-  code          String         @unique
-  discountType  DiscountType
-  discountValue Float
-  maxDiscount   Float?
-  minOrderValue Float?
-  usageLimit    Int?
-  usedCount     Int            @default(0)
-  target        String         @default("all")
-  startDate     DateTime
-  endDate       DateTime?
-  isActive      Boolean        @default(true)
-  isOneTimePerUser Boolean     @default(true)
-  usages        VoucherUsage[]
+  id               Int            @id @default(autoincrement())
+  code             String         @unique
+  discountType     DiscountType
+  discountValue    Float
+  startDate        DateTime
+  endDate          DateTime?
+  isActive         Boolean        @default(true)
+  maxDiscount      Float?
+  minOrderValue    Float?
+  usageLimit       Int?
+  usedCount        Int            @default(0)
+  target           String         @default("all")
+  isOneTimePerUser Boolean        @default(true)
+  usages           VoucherUsage[]
 }
 
 model VoucherUsage {
@@ -330,8 +330,8 @@ model Dispute {
   status       DisputeStatus @default(open)
   resolvedById Int?
   resolvedAt   DateTime?
-  evidenceUrls String[]      @default([])
   createdAt    DateTime      @default(now())
+  evidenceUrls String[]      @default([])
   createdBy    User          @relation("CreatedBy", fields: [createdById], references: [id])
   resolvedBy   User?         @relation("ResolvedBy", fields: [resolvedById], references: [id])
   trip         Trip          @relation(fields: [tripId], references: [id])
@@ -342,11 +342,11 @@ model DisputeLog {
   id        Int      @id @default(autoincrement())
   disputeId Int
   action    String
-  details   String?
   byUserId  Int
   createdAt DateTime @default(now())
-  dispute   Dispute  @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+  details   String?
   user      User     @relation(fields: [byUserId], references: [id])
+  dispute   Dispute  @relation(fields: [disputeId], references: [id], onDelete: Cascade)
 }
 
 model TripTip {
@@ -370,7 +370,7 @@ model TipLog {
   action      String
   createdAt   DateTime @default(now())
   performer   User     @relation(fields: [performedBy], references: [id])
-tip         TripTip  @relation(fields: [tipId], references: [id], onDelete: Cascade)
+  tip         TripTip  @relation(fields: [tipId], references: [id], onDelete: Cascade)
 }
 
 model PricingConfig {
@@ -378,27 +378,46 @@ model PricingConfig {
   name               String   @unique
   vehicleType        String?
   perKmPrice         Float    @default(12000)
-  perMinPrice        Float    @default(500)
   nightMultiplier    Float    @default(1.3)
   rushHourMultiplier Float    @default(1.2)
-  holidayMultiplier  Float    @default(1.0)
   badWeatherFee      Float    @default(0)
   isActive           Boolean  @default(true)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
+  holidayMultiplier  Float    @default(1.0)
+  perMinPrice        Float    @default(500)
+  nightEnd           String   @default("05:00")
+  nightStart         String   @default("22:00")
+  rushHour1End       String   @default("09:00")
+  rushHour1Start     String   @default("07:00")
+  rushHour2End       String   @default("19:00")
+  rushHour2Start     String   @default("16:30")
+  systemFee          Float    @default(2000)
 }
+
+model HolidayConfig {
+  id         Int      @id @default(autoincrement())
+  name       String
+  startDate  DateTime
+  endDate    DateTime
+  multiplier Float    @default(1.5)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
 
 model DriverRank {
   id             Int      @id @default(autoincrement())
   name           String   @unique
   code           String   @unique
   minTrips       Int      @default(0)
-  minPoints      Float?   @default(0)
   driverRate     Float    @default(80)
   platformRate   Float    @default(20)
   acceptanceRate String   @default("92%")
   createdAt      DateTime @default(now())
   updatedAt      DateTime
+  minPoints      Float?   @default(0)
   Driver         Driver[]
 }
 
@@ -409,6 +428,30 @@ model SystemConfig {
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime
+}
+
+model DriverLocationHistory {
+  id        Int      @id @default(autoincrement())
+  driverId  Int
+  tripId    Int?
+  lat       Float
+  lng       Float
+  createdAt DateTime @default(now())
+  driver    Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  trip      Trip?    @relation(fields: [tripId], references: [id])
+
+  @@index([driverId, createdAt])
+  @@index([tripId])
+}
+
+model DriverPointLog {
+  id        Int      @id @default(autoincrement())
+  driverId  Int
+  amount    Float
+  reason    String
+  tripId    Int?
+  createdAt DateTime @default(now())
+  driver    Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
 }
 
 enum UserStatus {
@@ -427,10 +470,10 @@ enum DriverStatus {
 enum TripStatus {
   requested
   accepted
-  arrived
   started
   completed
   cancelled
+  arrived
 }
 
 enum PaymentStatus {
@@ -438,21 +481,6 @@ enum PaymentStatus {
   success
   failed
   refunded
-}
-
-model DriverLocationHistory {
-  id        Int      @id @default(autoincrement())
-  driverId  Int
-  tripId    Int?
-  lat       Float
-  lng       Float
-  createdAt DateTime @default(now())
-
-  driver Driver @relation(fields: [driverId], references: [id], onDelete: Cascade)
-  trip   Trip?  @relation(fields: [tripId], references: [id], onDelete: SetNull)
-
-  @@index([driverId, createdAt])
-  @@index([tripId])
 }
 
 enum DiscountType {
@@ -478,15 +506,4 @@ enum TipStatus {
   success
   failed
   refunded
-}
-
-model DriverPointLog {
-  id        Int      @id @default(autoincrement())
-  driverId  Int
-  amount    Float
-  reason    String
-  tripId    Int?
-  createdAt DateTime @default(now())
-
-  driver Driver @relation(fields: [driverId], references: [id], onDelete: Cascade)
 }

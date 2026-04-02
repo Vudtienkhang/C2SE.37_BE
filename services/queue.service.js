@@ -122,7 +122,8 @@ async function processTripCompletion(data) {
         where: { id: tripId },
         include: { 
           driver: { include: { DriverRank: true } }, 
-          payments: true 
+          payments: true,
+          feeBreakdowns: true
         }
       });
 
@@ -149,77 +150,79 @@ async function processTripCompletion(data) {
         }
       });
 
-      // ƯU TIÊN: Lấy phương thức thanh toán thực tế từ DB (tránh việc Frontend gửi nhầm hoặc thiếu)
       const method = trip.payments[0]?.method || methodFromJob || 'CASH';
-      console.log(`[WORKER] Resolved payment method for Trip #${tripId}: ${method} (Source: ${trip.payments[0]?.method ? 'DB' : 'JobData'})`);
 
-      // 1. Tính hoa hồng DỰA TRÊN GIÁ GỐC (PRICE ESTIMATE)
-      const originalPrice = parseFloat(trip.priceEstimate || finalPrice || 0);
-      const discountAmount = Math.max(0, originalPrice - finalPrice);
+      // 1. TÍNH TOÁN DỰA TRÊN BREAKDOWN (QUAN TRỌNG)
+      const baseFareRecord = trip.feeBreakdowns.find(f => f.feeType === 'base_fare');
+      const baseFare = baseFareRecord ? baseFareRecord.amount : (trip.priceEstimate || 0);
       
+      const surcharges = trip.feeBreakdowns
+        .filter(f => f.feeType.startsWith('surcharge_'))
+        .reduce((sum, f) => sum + f.amount, 0);
+      
+      const systemFeeRecord = trip.feeBreakdowns.find(f => f.feeType === 'system_fee');
+      const systemFee = systemFeeRecord ? systemFeeRecord.amount : 0;
+
+      // Hoa hồng chỉ tính trên BaseFare
       const rate = trip.driver?.DriverRank?.platformRate ?? 20;
-      const commissionAmount = originalPrice * (rate / 100);
+      const commissionAmount = baseFare * (rate / 100);
 
-      console.log(`[COMPLETION_LOG] Trip #${tripId}, Method: ${method}, Original: ${originalPrice}, Final: ${finalPrice}, Discount: ${discountAmount}, Commission: ${commissionAmount}`);
+      // Tổng thu nhập của tài xế = (BaseFare - Hoa hồng) + Surcharges (100%)
+      const driverEarnings = (baseFare - commissionAmount) + surcharges;
 
-      // 2. Cập nhật ví tài xế
+      // Số tiền cần điều chỉnh trong ví (nếu thanh toán ví thì cộng DriverEarnings, nếu tiền mặt thì chỉ bù Voucher/Trừ hoa hồng)
+      const originalPrice = baseFare + surcharges + systemFee;
+      const discountAmount = Math.max(0, originalPrice - finalPrice);
+
+      console.log(`[COMPLETION_LOG] Trip #${tripId}, Method: ${method}, Base: ${baseFare}, Surcharges: ${surcharges}, SystemFee: ${systemFee}, Earnings: ${driverEarnings}, Commission: ${commissionAmount}`);
+
       const driverWallet = await tx.wallet.findUnique({ where: { userId: trip.driver.userId } });
       
       if (driverWallet) {
         if (method === 'WALLET') {
-          // Cộng toàn bộ GIÁ GỐC vào ví 
+          // Ví: Khách đã trả toàn bộ finalPrice. Ta cộng DriverEarnings cho khách.
+          // NHƯNG chúng ta cần xử lý việc khách đã trả finalPrice vào escrow.
+          // Công thức chuẩn: Cộng giá trị thực nhận cho tài xế.
           await tx.wallet.update({
             where: { id: driverWallet.id },
-            data: { balance: { increment: originalPrice } }
+            data: { balance: { increment: driverEarnings } }
           });
 
           await tx.walletTransaction.create({
             data: {
               walletId: driverWallet.id,
               type: 'credit',
-              amount: originalPrice,
-              description: `Thu nhập chuyến đi #${tripId} (Thanh toán Ví)`,
+              amount: driverEarnings,
+              description: `Thu nhập chuyến đi #${tripId} (Phụ phí: ${surcharges})`,
               reference: `trip_${tripId}`
             }
           });
         } else {
-          // Tiền mặt: Bù Voucher
-          if (discountAmount > 0) {
+          // Tiền mặt: Tài xế đã cầm finalPrice.
+          // Tài xế nợ platform: Hoa hồng + SystemFee.
+          // Tài xế được platform bù: Voucher.
+          const netAdjustment = discountAmount - (commissionAmount + systemFee);
+          
+          if (netAdjustment !== 0) {
             await tx.wallet.update({
               where: { id: driverWallet.id },
-              data: { balance: { increment: discountAmount } }
+              data: { balance: { increment: netAdjustment } }
             });
 
             await tx.walletTransaction.create({
               data: {
                 walletId: driverWallet.id,
-                type: 'credit',
-                amount: discountAmount,
-                description: `Bồi hoàn Voucher chuyến đi #${tripId}`,
+                type: netAdjustment > 0 ? 'credit' : 'commission',
+                amount: Math.abs(netAdjustment),
+                description: netAdjustment > 0 ? `Bồi hoàn voucher chuyến đi #${tripId}` : `Khấu trừ hoa hồng & phí hệ thống #${tripId}`,
                 reference: `trip_${tripId}`
               }
             });
           }
         }
-
-        // TRỪ PHÍ HOA HỒNG
-        await tx.wallet.update({
-          where: { id: driverWallet.id },
-          data: { balance: { decrement: commissionAmount } }
-        });
-
-        await tx.walletTransaction.create({
-          data: {
-            walletId: driverWallet.id,
-            type: 'commission',
-            amount: commissionAmount,
-            description: `Phí hoa hồng chuyến đi #${tripId} (${rate}%)`,
-            reference: `trip_${tripId}`
-          }
-        });
       }
 
-      // 3. Tạo bản ghi hoa hồng hệ thống
+      // 3. Tạo bản ghi hoa hồng hệ thống (Chỉ lưu phần Commission)
       await tx.tripCommission.create({
         data: {
           tripId: trip.id,
@@ -228,6 +231,7 @@ async function processTripCompletion(data) {
           commissionAmount: commissionAmount
         }
       });
+
     }, { timeout: 15000 });
   } catch (err) {
     console.error(`[WORKER ERROR] Transaction failed for Trip #${tripId}:`, err);
