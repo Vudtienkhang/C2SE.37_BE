@@ -61,6 +61,7 @@ export const getDisputeById = async (id) => {
         include: {
           customer: { include: { user: { include: { wallet: true } } } },
           driver: { include: { user: true } },
+          feeBreakdowns: true,
           payments: true,
           conversation: {
             include: {
@@ -96,6 +97,8 @@ export const resolveWithRefund = async (id, adminId, refundAmount, note) => {
     });
 
     if (!dispute) throw new Error('Không tìm thấy khiếu nại');
+    if (dispute.status !== 'investigating') throw new Error('Chỉ có thể hoàn tiền khi khiếu nại đang ở trạng thái kiểm tra (investigating).');
+
     const customerWallet = dispute.trip.customer.user.wallet;
 
     if (!customerWallet) throw new Error('Khách hàng không có ví điện tử để hoàn tiền');
@@ -163,6 +166,7 @@ export const resolveWithPenalty = async (id, adminId, penaltyPoints, reason) => 
     });
 
     if (!dispute || !dispute.trip.driverId) throw new Error('Không tìm thấy thông tin tài xế để phạt');
+    if (dispute.status !== 'investigating') throw new Error('Chỉ có thể phạt tài xế khi khiếu nại đang ở trạng thái kiểm tra (investigating).');
 
     // 1. Log điểm phạt tài xế
     await tx.driverPointLog.create({
@@ -255,7 +259,7 @@ export const updateDisputeStatus = async (id, status, adminId, note = '') => {
 
   return await prisma.$transaction(async (tx) => {
     const updateData = { status };
-    
+
     if (status === 'resolved' || status === 'dismissed') {
       updateData.resolvedById = parseInt(adminId);
       updateData.resolvedAt = new Date();
@@ -277,7 +281,7 @@ export const updateDisputeStatus = async (id, status, adminId, note = '') => {
 
     // 5. Gửi thông báo cho người dùng
     try {
-      const dispute = await tx.dispute.findUnique({ 
+      const dispute = await tx.dispute.findUnique({
         where: { id: parseInt(id) },
         include: { trip: true }
       });
@@ -326,7 +330,7 @@ export const updateDisputeStatus = async (id, status, adminId, note = '') => {
  */
 export const getAllDisputes = async (filters = {}) => {
   const { status, reason, skip = 0, take = 20 } = filters;
-  
+
   const where = {};
   if (status) where.status = status;
   if (reason) where.reason = { contains: reason, mode: 'insensitive' };

@@ -106,7 +106,9 @@ export const getTripDisputes = async (req, res) => {
 export const updateStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, adminId, note } = req.body;
+    let { status, adminId, note } = req.body;
+
+    adminId = adminId || (req.admin && req.admin.id);
 
     if (!status || !adminId) {
       return res.status(400).json({
@@ -136,13 +138,20 @@ export const updateStatus = async (req, res) => {
 export const resolveRefund = async (req, res) => {
   try {
     const { id } = req.params;
-    const { adminId, refundAmount, note } = req.body;
+    let { adminId, refundAmount, note } = req.body;
+
+    adminId = adminId || (req.admin && req.admin.id);
 
     if (!adminId || !refundAmount) {
       return res.status(400).json({ success: false, message: 'Thiếu thông tin adminId hoặc số tiền hoàn.' });
     }
 
-    const result = await disputeService.resolveWithRefund(id, adminId, refundAmount, note);
+    const parsedAmount = parseFloat(refundAmount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Số tiền hoàn không hợp lệ.' });
+    }
+
+    const result = await disputeService.resolveWithRefund(id, adminId, parsedAmount, note);
     return res.status(200).json({ success: true, data: result, message: 'Đã hoàn tiền và đóng khiếu nại thành công.' });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
@@ -155,13 +164,20 @@ export const resolveRefund = async (req, res) => {
 export const resolvePenalty = async (req, res) => {
   try {
     const { id } = req.params;
-    const { adminId, penaltyPoints, reason } = req.body;
+    let { adminId, penaltyPoints, reason } = req.body;
+
+    adminId = adminId || (req.admin && req.admin.id);
 
     if (!adminId || !penaltyPoints) {
       return res.status(400).json({ success: false, message: 'Thiếu thông tin adminId hoặc điểm phạt.' });
     }
 
-    const result = await disputeService.resolveWithPenalty(id, adminId, penaltyPoints, reason);
+    const parsedPoints = parseFloat(penaltyPoints);
+    if (isNaN(parsedPoints) || parsedPoints <= 0) {
+      return res.status(400).json({ success: false, message: 'Điểm phạt không hợp lệ.' });
+    }
+
+    const result = await disputeService.resolveWithPenalty(id, adminId, parsedPoints, reason);
     return res.status(200).json({ success: true, data: result, message: 'Đã thực hiện phạt tài xế và đóng khiếu nại thành công.' });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
