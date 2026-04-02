@@ -359,6 +359,7 @@ export const initSocket = (server) => {
         }
 
         // 3. THÔNG BÁO CHO CÁC BÊN NGAY LẬP TỨC
+        console.log(`[SOCKET] Emitting trip:status_updated for Trip #${tripId} with status: ${status}`);
         io.to(`trip_${tripId}`).emit('trip:status_updated', { tripId, status });
         
       } catch (error) {
