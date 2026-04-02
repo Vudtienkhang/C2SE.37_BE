@@ -1,11 +1,11 @@
 import express from 'express';
 import * as controller from '../controllers/voucher.controller.js';
-import { verifyAdminToken, verifyToken } from '../middlewares/auth.middleware.js';
+import { verifyAdminToken, verifyToken, optionalVerifyToken } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
 
 router.post('/validate', verifyToken, controller.validateVoucher);
-router.get('/public', controller.getPublicVouchers);
+router.get('/public', optionalVerifyToken, controller.getPublicVouchers);
 
 router.use(verifyAdminToken);
 
