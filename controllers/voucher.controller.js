@@ -68,6 +68,7 @@ export const createVoucher = async (req, res) => {
       startDate,
       endDate,
       isActive,
+      isOneTimePerUser,
     } = req.body;
 
     if (!code || !discountType || discountValue === undefined || !startDate) {
@@ -121,6 +122,7 @@ export const updateVoucher = async (req, res) => {
       startDate,
       endDate,
       isActive,
+      isOneTimePerUser,
     } = req.body;
 
     const existing = await prisma.voucher.findUnique({ where: { id: parseInt(id) } });
@@ -207,20 +209,47 @@ export const deleteVoucher = async (req, res) => {
 export const getPublicVouchers = async (req, res) => {
   try {
     const now = new Date();
+    const condition = {
+      isActive: true,
+      startDate: { lte: now },
+      OR: [
+        { endDate: null },
+        { endDate: { gte: now } }
+      ]
+    };
+
+    if (req.user) {
+      const usedVouchers = await prisma.voucherUsage.findMany({
+        where: { userId: req.user.id },
+        select: { voucherId: true }
+      });
+      const usedIds = usedVouchers.map(u => u.voucherId);
+
+      if (usedIds.length > 0) {
+        condition.AND = [
+          {
+            OR: [
+              { isOneTimePerUser: false },
+              { id: { notIn: usedIds } }
+            ]
+          }
+        ];
+      }
+    }
+
     const vouchers = await prisma.voucher.findMany({
-      where: {
-        isActive: true,
-        startDate: { lte: now },
-        OR: [
-          { endDate: null },
-          { endDate: { gte: now } }
-        ]
-      },
+      where: condition,
       orderBy: { discountValue: 'desc' },
-      take: 10 // top 10 vouchers
+      take: 20 // top 20 vouchers
     });
     
-    res.status(200).json({ success: true, data: vouchers });
+    // Filter out those that reached their global usageLimit
+    const availableVouchers = vouchers.filter(v => {
+      if (v.usageLimit && v.usedCount >= v.usageLimit) return false;
+      return true;
+    });
+
+    res.status(200).json({ success: true, data: availableVouchers });
   } catch (error) {
     console.error('getPublicVouchers error:', error);
     res.status(500).json({ success: false, message: error.message });

@@ -66,3 +66,21 @@ export const verifyToken = (req, res, next) => {
         });
     }
 };
+
+export const optionalVerifyToken = (req, res, next) => {
+    try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return next();
+        }
+
+        const token = authHeader.split(' ')[1];
+        const decoded = jwt.verify(token, JWT_SECRET);
+
+        req.user = decoded; // { id, roleId, ... }
+        next();
+    } catch (error) {
+        // Ignored, user is just unauthenticated
+        next();
+    }
+};
