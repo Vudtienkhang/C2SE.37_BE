@@ -20,7 +20,6 @@ model User {
   id                      Int              @id @default(autoincrement())
   fullName                String?
   phone                   String           @unique
-  avatarUrl               String?
   email                   String?          @unique
   password                String
   roleId                  Int
@@ -29,6 +28,7 @@ model User {
   lastLoginAt             DateTime?
   createdAt               DateTime         @default(now())
   updatedAt               DateTime         @updatedAt
+  avatarUrl               String?
   customer                Customer?
   disputesCreated         Dispute[]        @relation("CreatedBy")
   disputesResolved        Dispute[]        @relation("ResolvedBy")
@@ -93,13 +93,13 @@ model Driver {
   totalTrips      Int                     @default(0)
   isOnline        Boolean                 @default(false)
   status          DriverStatus            @default(pending)
-  suspendedUntil  DateTime?
-  reason          String?
   createdAt       DateTime                @default(now())
   currentLat      Float?
   currentLng      Float?
   isBusy          Boolean                 @default(false)
   lastLocationAt  DateTime?
+  reason          String?
+  suspendedUntil  DateTime?
   rankId          Int?
   totalPoints     Float                   @default(0)
   DriverRank      DriverRank?             @relation(fields: [rankId], references: [id])
@@ -173,10 +173,10 @@ model Trip {
   tipTotalAmount      Float?
   status              TripStatus              @default(requested)
   paymentStatus       PaymentStatus           @default(pending)
-  cancelledBy         String?
-  cancelReason        String?
   createdAt           DateTime                @default(now())
   routePolyline       String?
+  cancelReason        String?
+  cancelledBy         String?
   conversation        Conversation?
   disputes            Dispute[]
   locationHistory     DriverLocationHistory[]
@@ -189,6 +189,7 @@ model Trip {
   feeBreakdowns       TripFeeBreakdown[]
   tips                TripTip[]
   voucherUsages       VoucherUsage[]
+  sosAlerts           SOSAlert[]
 
   @@index([customerId])
   @@index([driverId])
@@ -270,9 +271,9 @@ model Voucher {
   isActive         Boolean        @default(true)
   maxDiscount      Float?
   minOrderValue    Float?
+  target           String         @default("all")
   usageLimit       Int?
   usedCount        Int            @default(0)
-  target           String         @default("all")
   isOneTimePerUser Boolean        @default(true)
   usages           VoucherUsage[]
 }
@@ -344,9 +345,9 @@ model DisputeLog {
   id        Int      @id @default(autoincrement())
   disputeId Int
   action    String
+  details   String?
   byUserId  Int
   createdAt DateTime @default(now())
-  details   String?
   user      User     @relation(fields: [byUserId], references: [id])
   dispute   Dispute  @relation(fields: [disputeId], references: [id], onDelete: Cascade)
 }
@@ -407,7 +408,6 @@ model HolidayConfig {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 }
-
 
 model DriverRank {
   id             Int      @id @default(autoincrement())
@@ -509,3 +509,23 @@ enum TipStatus {
   failed
   refunded
 }
+
+model SOSAlert {
+  id          Int      @id @default(autoincrement())
+  tripId      Int
+  trip        Trip     @relation(fields: [tripId], references: [id])
+  callerId    Int
+  callerRole  String   // "driver" or "customer"
+  lat         Float?
+  lng         Float?
+  status      SOSStatus @default(active)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+enum SOSStatus {
+  active
+  resolved
+  dismissed
+}
+
