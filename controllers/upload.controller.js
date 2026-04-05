@@ -93,3 +93,32 @@ export const uploadChatImage = async (req, res) => {
     });
   }
 };
+
+export const uploadWithdrawalProof = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const file = req.file;
+
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'Thiếu ID yêu cầu rút tiền.' });
+    }
+
+    if (!file) {
+      return res.status(400).json({ success: false, message: 'Không tìm thấy file ảnh minh chứng.' });
+    }
+
+    const proofUrl = await uploadService.uploadWithdrawalProofToSupabase(id, file.buffer, file.mimetype);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Tải lên ảnh minh chứng thành công',
+      data: { proofUrl },
+    });
+  } catch (error) {
+    console.error('Lỗi uploadWithdrawalProof controller:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Lỗi máy chủ nội bộ',
+    });
+  }
+};

@@ -17,30 +17,31 @@ model Role {
 }
 
 model User {
-  id                      Int              @id @default(autoincrement())
+  id                      Int                 @id @default(autoincrement())
   fullName                String?
-  phone                   String           @unique
-  email                   String?          @unique
+  phone                   String              @unique
+  email                   String?             @unique
   password                String
   roleId                  Int
-  status                  UserStatus       @default(active)
-  isVerified              Boolean          @default(false)
+  status                  UserStatus          @default(active)
+  isVerified              Boolean             @default(false)
   lastLoginAt             DateTime?
-  createdAt               DateTime         @default(now())
-  updatedAt               DateTime         @updatedAt
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
   avatarUrl               String?
   customer                Customer?
-  disputesCreated         Dispute[]        @relation("CreatedBy")
-  disputesResolved        Dispute[]        @relation("ResolvedBy")
+  disputesCreated         Dispute[]           @relation("CreatedBy")
+  disputesResolved        Dispute[]           @relation("ResolvedBy")
   disputeLogs             DisputeLog[]
   driver                  Driver?
   driverDocumentsReviewed DriverDocument[]
   messages                Message[]
   notifications           Notification[]
   tipLogs                 TipLog[]
-  role                    Role             @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  role                    Role                @relation(fields: [roleId], references: [id], onDelete: Cascade)
   voucherUsages           VoucherUsage[]
   wallet                  Wallet?
+  withdrawalRequests      WithdrawalRequest[]
 }
 
 model Notification {
@@ -52,6 +53,8 @@ model Notification {
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model Customer {
@@ -182,6 +185,7 @@ model Trip {
   locationHistory     DriverLocationHistory[]
   payments            Payment[]
   review              Review?
+  sosAlerts           SOSAlert[]
   customer            Customer                @relation(fields: [customerId], references: [id])
   driver              Driver?                 @relation(fields: [driverId], references: [id])
   vehicle             CustomerVehicle?        @relation(fields: [vehicleId], references: [id])
@@ -189,7 +193,6 @@ model Trip {
   feeBreakdowns       TripFeeBreakdown[]
   tips                TripTip[]
   voucherUsages       VoucherUsage[]
-  sosAlerts           SOSAlert[]
 
   @@index([customerId])
   @@index([driverId])
@@ -258,7 +261,30 @@ model WalletTransaction {
   createdAt            DateTime              @default(now())
   gatewayTransactionId String?               @unique
   reference            String?
+  proofImageUrl        String?
   wallet               Wallet                @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
+}
+
+model WithdrawalRequest {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  amount        Float
+  bankName      String
+  accountNumber String
+  accountName   String
+  status        String   @default("pending")
+  adminNote     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  bankCode      String?
+  referenceCode String?  @unique
+  transactionId String?
+  proofImageUrl String?
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model Voucher {
@@ -288,6 +314,8 @@ model VoucherUsage {
   trip           Trip     @relation(fields: [tripId], references: [id])
   user           User     @relation(fields: [userId], references: [id])
   voucher        Voucher  @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+
+  @@index([userId, tripId])
 }
 
 model Conversation {
@@ -309,6 +337,8 @@ model Message {
   createdAt      DateTime     @default(now())
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender         User         @relation(fields: [senderId], references: [id])
+
+  @@index([conversationId])
 }
 
 model Review {
@@ -454,6 +484,21 @@ model DriverPointLog {
   tripId    Int?
   createdAt DateTime @default(now())
   driver    Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@index([driverId])
+}
+
+model SOSAlert {
+  id         Int       @id @default(autoincrement())
+  tripId     Int
+  callerId   Int
+  callerRole String
+  lat        Float?
+  lng        Float?
+  status     SOSStatus @default(active)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  trip       Trip      @relation(fields: [tripId], references: [id])
 }
 
 enum UserStatus {
@@ -495,6 +540,7 @@ enum WalletTransactionType {
   debit
   commission
   refund
+  withdrawal
 }
 
 enum DisputeStatus {
@@ -510,22 +556,8 @@ enum TipStatus {
   refunded
 }
 
-model SOSAlert {
-  id          Int      @id @default(autoincrement())
-  tripId      Int
-  trip        Trip     @relation(fields: [tripId], references: [id])
-  callerId    Int
-  callerRole  String   // "driver" or "customer"
-  lat         Float?
-  lng         Float?
-  status      SOSStatus @default(active)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
-
 enum SOSStatus {
   active
   resolved
   dismissed
 }
-

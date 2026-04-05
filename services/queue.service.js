@@ -5,6 +5,7 @@ import prisma from '../prisma/prisma.js';
 import * as authAdminService from './admin.service.js';
 import { updateDriverScore } from './driver-score.service.js';
 import * as socketService from './socket.service.js';
+import { invalidateProfileCache } from './auth.services.js';
 
 console.log('[WORKER] Trip Tasks Worker initialized');
 
@@ -102,6 +103,9 @@ async function processTripAcceptance(data) {
       });
     }
   });
+
+  // 3. Clear Passenger Profile Cache (Redis)
+  await invalidateProfileCache(passengerId);
 
   console.log(`[WORKER] Post-acceptance tasks completed for Trip #${tripId}`);
 }
@@ -279,6 +283,10 @@ async function processTripCompletion(data) {
       
       if (finalWallet) {
         console.log(`[WORKER] Emitting wallet:updated for user ${tripResult.driver.userId}, balance: ${finalWallet.balance}`);
+        
+        // Clear Driver Profile Cache (Redis)
+        await invalidateProfileCache(tripResult.driver.userId);
+
         socketService.emitToUser(tripResult.driver.userId, 'wallet:updated', { 
           balance: finalWallet.balance 
         });
@@ -377,6 +385,9 @@ async function processTripCancellation(data) {
 
           // Cập nhật lại số dư trên app
           try {
+            // Clear Passenger Profile Cache (Redis)
+            await invalidateProfileCache(tripDetail.customer.userId);
+
             socketService.emitToUser(tripDetail.customer.userId, 'wallet:updated', { 
               balance: wallet.balance + payment.amount 
             });

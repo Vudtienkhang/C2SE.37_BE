@@ -172,3 +172,35 @@ export const uploadChatImageToSupabase = async (tripId, senderId, fileBuffer, mi
 
   return publicUrlData.publicUrl;
 };
+
+/**
+ * Upload ảnh minh chứng chuyển khoản rút tiền lên Supabase (Bucket: withdrawal_proofs)
+ * @param {number} withdrawalId 
+ * @param {Buffer} fileBuffer 
+ * @param {string} mimeType 
+ * @returns {Promise<string>} - Public URL của ảnh minh chứng
+ */
+export const uploadWithdrawalProofToSupabase = async (withdrawalId, fileBuffer, mimeType) => {
+  let ext = 'png';
+  if (mimeType.includes('jpeg') || mimeType.includes('jpg')) ext = 'jpg';
+  
+  const fileName = `withdraw_${withdrawalId}_${Date.now()}.${ext}`;
+  
+  const { error } = await supabase.storage
+    .from('withdrawal_proofs')
+    .upload(fileName, fileBuffer, {
+      contentType: mimeType || 'image/png',
+      upsert: true,
+    });
+
+  if (error) {
+    console.error('Lỗi upload minh chứng rút tiền Supabase:', error);
+    throw new Error('Lỗi khi tải ảnh minh chứng lên máy chủ.');
+  }
+
+  const { data: publicUrlData } = supabase.storage
+    .from('withdrawal_proofs')
+    .getPublicUrl(fileName);
+
+  return publicUrlData.publicUrl;
+};

@@ -204,3 +204,20 @@ export const listAllDisputes = async (req, res) => {
     });
   }
 };
+/**
+ * Lấy số lượng khiếu nại đang chờ xử lý (Admin)
+ */
+export const getPendingCount = async (req, res) => {
+  try {
+    const count = await disputeService.getPendingDisputeCount();
+    return res.status(200).json({
+      success: true,
+      count,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Lỗi khi đếm số lượng khiếu nại.',
+    });
+  }
+};

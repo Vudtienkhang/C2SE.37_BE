@@ -1,5 +1,18 @@
 import prisma from '../prisma/prisma.js';
 import notificationService from './notification.service.js';
+import { invalidateProfileCache } from './auth.services.js';
+import { getIO } from './socket.service.js';
+
+/**
+ * Đếm số lượng khiếu nại đang chờ xử lý (Admin)
+ */
+export const getPendingDisputeCount = async () => {
+  return await prisma.dispute.count({
+    where: {
+      status: { in: ['open', 'investigating'] }
+    }
+  });
+};
 
 /**
  * Tạo một khiếu nại mới cho chuyến đi
@@ -41,6 +54,10 @@ export const createDispute = async (data) => {
         byUserId: parseInt(createdById),
       },
     });
+
+    // Phát sự kiện cho Admin
+    const io = getIO();
+    io.emit('admin:update_counts');
 
     return dispute;
   });
@@ -139,6 +156,9 @@ export const resolveWithRefund = async (id, adminId, refundAmount, note) => {
       }
     });
 
+    // 4.5 Clear Profile Cache (Redis)
+    await invalidateProfileCache(dispute.createdById);
+
     // 5. Gửi thông báo cho khách hàng
     try {
       await notificationService.createNotification(
@@ -150,6 +170,10 @@ export const resolveWithRefund = async (id, adminId, refundAmount, note) => {
     } catch (notifyError) {
       console.error('[DISPUTE SERVICE] Error sending refund notification:', notifyError.message);
     }
+
+    // Phát sự kiện cập nhật số lượng cho Admin
+    const io = getIO();
+    if (io) io.emit('admin:update_counts');
 
     return updatedDispute;
   });
@@ -223,6 +247,10 @@ export const resolveWithPenalty = async (id, adminId, penaltyPoints, reason) => 
     } catch (notifyError) {
       console.error('[DISPUTE SERVICE] Error sending penalty notifications:', notifyError.message);
     }
+
+    // Phát sự kiện cập nhật số lượng cho Admin
+    const io = getIO();
+    if (io) io.emit('admin:update_counts');
 
     return updatedDispute;
   });
@@ -318,6 +346,10 @@ export const updateDisputeStatus = async (id, status, adminId, note = '') => {
     } catch (notifyError) {
       console.error('[DISPUTE SERVICE] Error sending status update notification:', notifyError.message);
     }
+
+    // Phát sự kiện cập nhật số lượng cho Admin
+    const io = getIO();
+    if (io) io.emit('admin:update_counts');
 
     return updatedDispute;
   });

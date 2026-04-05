@@ -1,5 +1,6 @@
 import prisma from '../prisma/prisma.js';
 import { getIO } from './socket.service.js';
+import { invalidateProfileCache } from './auth.services.js';
 
 /**
  * Xử lý nạp tiền từ Webhook của Sepay
@@ -87,6 +88,9 @@ export const processSepayWebhook = async (data) => {
 
     return { updatedWallet, transaction };
   });
+
+  // 6.5 Clear Profile Cache (Redis)
+  await invalidateProfileCache(userId);
 
   // 7. Thông báo qua Socket.io
   try {

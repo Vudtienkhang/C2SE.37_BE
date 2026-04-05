@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { supabase } from '../lib/supabase.js';
+import redis from '../lib/redis.js';
 
 const prisma = new PrismaClient();
 
@@ -75,10 +76,22 @@ export const loginUser = async ({ phone, password }) => {
     throw new Error('Số điện thoại hoặc mật khẩu không chính xác.');
   }
 
-  // 4. Tìm thông tin tài xế nếu là driver
-  const driver = await prisma.driver.findUnique({
-    where: { userId: user.id }
-  });
+  // 4. Tìm thông tin tài xế & Ví
+  const [driver, wallet] = await Promise.all([
+    prisma.driver.findUnique({
+      where: { userId: user.id },
+      include: { DriverRank: true }
+    }),
+    prisma.wallet.findUnique({
+      where: { userId: user.id },
+      include: {
+        transactions: {
+          orderBy: { createdAt: 'desc' },
+          take: 10
+        }
+      }
+    })
+  ]);
 
   // 5. Tạo token
   const token = jwt.sign(
@@ -94,15 +107,51 @@ export const loginUser = async ({ phone, password }) => {
       fullName: user.fullName,
       phone: user.phone,
       roleId: user.roleId,
-      driver: driver ? { id: driver.id, status: driver.status, isOnline: driver.isOnline } : null
+      driver: driver ? { 
+        id: driver.id, 
+        status: driver.status, 
+        isOnline: driver.isOnline, 
+        rank: driver.DriverRank 
+      } : null,
+      wallet: wallet ? {
+        id: wallet.id,
+        balance: wallet.balance,
+        transactions: wallet.transactions
+      } : { balance: 0, transactions: [] }
     },
     token
   };
 };
 
 
+export const invalidateProfileCache = async (id) => {
+  try {
+    const numericId = parseInt(id, 10);
+    const cacheKey = `user:profile:${numericId}`;
+    await redis.del(cacheKey);
+    console.log(`[REDIS_SUCCESS] Clearing key: ${cacheKey}`);
+  } catch (err) {
+    console.warn('[REDIS_ERROR] Failed to clear key:', err.message);
+  }
+};
+
+
 export const getUserById = async (id) => {
   const numericId = parseInt(id, 10);
+  const cacheKey = `user:profile:${numericId}`;
+
+  // 1. Try to get from Redis
+  try {
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      console.log(`[CACHE_HIT] Profile for user: ${numericId}`);
+      return JSON.parse(cached);
+    }
+    console.log(`[CACHE_MISS] Profile for user: ${numericId}. Fetching from DB...`);
+  } catch (err) {
+    console.warn('[REDIS] Profile cache read error:', err.message);
+  }
+
   const user = await prisma.user.findUnique({
     where: { id: numericId },
   });
@@ -149,7 +198,7 @@ export const getUserById = async (id) => {
     }
   }
 
-  return {
+  const result = {
     id: user.id,
     fullName: user.fullName,
     phone: user.phone,
@@ -172,6 +221,15 @@ export const getUserById = async (id) => {
       transactions: wallet.transactions 
     } : { balance: 0, transactions: [] }
   };
+
+  // 3. Save to Redis
+  try {
+    await redis.set(cacheKey, JSON.stringify(result), 'EX', 1800); // 30 minutes
+  } catch (err) {
+    console.warn('[REDIS] Profile cache write error:', err.message);
+  }
+
+  return result;
 };
 
 
@@ -210,6 +268,9 @@ export const uploadUserAvatarToSupabase = async (id, fileBuffer, mimeType) => {
       avatarUrl: publicUrl,
     }
   });
+
+  // 5. Clear Profile Cache
+  await redis.del(`user:profile:${numericId}`).catch(() => {});
 
   return publicUrl;
 };
@@ -262,6 +323,9 @@ export const updateUser = async (id, { fullName, phone, email }) => {
       data: { fullName: fullName || user.fullName }
     });
   }
+
+  // 5. Clear Profile Cache
+  await redis.del(`user:profile:${numericId}`).catch(() => {});
 
   return {
     id: updatedUser.id,

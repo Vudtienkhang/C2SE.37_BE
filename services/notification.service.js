@@ -19,9 +19,11 @@ class NotificationService {
       // Phát sự kiện real-time qua socket tới room của người dùng
       try {
         const io = getIO();
-        io.to(`user_${userId}`).emit('notification:new', notification);
+        const roomName = `user_${userId}`;
+        io.to(roomName).emit('notification:new', notification);
+        // console.log(`[NOTIFICATION] Emitted to room ${roomName}`);
       } catch (socketError) {
-        console.warn('[NOTIFICATION] Socket not initialized or error emitting:', socketError.message);
+        console.warn(`[NOTIFICATION] Socket emit failed for User ${userId}:`, socketError.message);
       }
 
       return notification;

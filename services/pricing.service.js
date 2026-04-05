@@ -1,4 +1,5 @@
 import prisma from '../prisma/prisma.js';
+import redis from '../lib/redis.js';
 import * as weatherService from './weather.service.js';
 import * as dateTimeHelper from '../lib/dateTime.helper.js';
 
@@ -26,13 +27,36 @@ export const calculateTripPrice = async ({
     throw new Error('Distance and duration must be non-negative.');
   }
 
-  // 1. Get active PricingConfig
-  const config = await prisma.pricingConfig.findFirst({
-    where: { 
-      vehicleType: normalizedType,
-      isActive: true 
+  // 1. Get active PricingConfig (With Redis Cache)
+  const cacheKey = `pricing:config:${normalizedType}`;
+  let config = null;
+
+  try {
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      config = JSON.parse(cached);
+      // console.log(`[PRICING] Cache hit for ${normalizedType}`);
     }
-  });
+  } catch (redisErr) {
+    console.warn('[REDIS] Error reading pricing cache:', redisErr.message);
+  }
+
+  if (!config) {
+    config = await prisma.pricingConfig.findFirst({
+      where: { 
+        vehicleType: normalizedType,
+        isActive: true 
+      }
+    });
+
+    if (config) {
+      try {
+        await redis.set(cacheKey, JSON.stringify(config), 'EX', 3600); // Cache for 1 hour
+      } catch (redisErr) {
+        console.warn('[REDIS] Error setting pricing cache:', redisErr.message);
+      }
+    }
+  }
 
   if (!config) {
     throw new Error(`No active pricing configuration found for vehicle type: ${vehicleType}`);
@@ -126,6 +150,16 @@ export const deactivateOtherConfigs = async (vehicleType) => {
     },
     data: { isActive: false }
   });
+  
+  // Clear cache for this vehicle type
+  try {
+    let normalizedType = vehicleType;
+    if (normalizedType === 'car') normalizedType = 'car_4';
+    await redis.del(`pricing:config:${normalizedType}`);
+    console.log(`[PRICING] Cache cleared for ${normalizedType}`);
+  } catch (err) {
+    console.warn('[REDIS] Failed to clear pricing cache:', err.message);
+  }
 };
 /**
  * Gets currently detected weather status

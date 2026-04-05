@@ -20,6 +20,9 @@ router.post('/', verifyToken, upload.array('evidence', 10), disputeController.cr
 router.get('/trip/:tripId', verifyToken, disputeController.getTripDisputes);
 
 // --- Admin routes ---
+// GET /disputes/pending-count - Đếm số lượng khiếu nại đang chờ (Admin)
+router.get('/pending-count', verifyAdminToken, disputeController.getPendingCount);
+
 // GET /api/disputes - Danh sách khiếu nại toàn hệ thống (Admin)
 router.get('/', verifyAdminToken, disputeController.listAllDisputes);
 
