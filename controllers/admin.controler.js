@@ -46,7 +46,7 @@ export const loginController = async (req, res) => {
         console.error('Lỗi login controller:', error);
         return res.status(500).json({
             success: false,
-            message: 'Lỗi máy chủ nội bộ',
+            message: 'Lỗi máy chủ nội bộ: ' + error.message,
         });
     }
 };
