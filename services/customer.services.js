@@ -1,6 +1,5 @@
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { supabase } from '../lib/supabase.js';
+import prisma from '../prisma/prisma.js';
 
 export const getVehiclesByUserId = async (userId) => {
     const numericUserId = parseInt(userId, 10);

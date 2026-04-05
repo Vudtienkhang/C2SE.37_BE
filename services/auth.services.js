@@ -1,9 +1,7 @@
-import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { supabase } from '../lib/supabase.js';
 import redis from '../lib/redis.js';
-
-const prisma = new PrismaClient();
+import prisma from '../prisma/prisma.js';
 
 export const registerUser = async ({ fullName, phone, password, roleId }) => {
   // 1. Kiểm tra xem người dùng đã tồn tại chưa (dựa vào số điện thoại)

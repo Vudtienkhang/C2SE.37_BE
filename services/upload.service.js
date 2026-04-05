@@ -1,7 +1,5 @@
-import { PrismaClient } from '@prisma/client';
 import { supabase } from '../lib/supabase.js';
-
-const prisma = new PrismaClient();
+import prisma from '../prisma/prisma.js';
 
 export const uploadUserAvatarToSupabase = async (id, fileBuffer, mimeType) => {
   // 1. Tạo tên file độc nhất
