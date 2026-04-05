@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "build": "prisma generate && prisma db push",
+    "build": "npx prisma generate && npx prisma db push",
     "test": "echo \"Error: no test specified\" && exit 1",
     "smee": "smee -u https://smee.io/CwQb3DeVnUoWJiC -t http://localhost:8080/api/v1/payment/sepay-webhook"
   },
