@@ -17,6 +17,7 @@
   "dependencies": {
     "@aws-sdk/client-rekognition": "^3.1020.0",
     "@mapbox/polyline": "^1.2.1",
+    "@prisma/client": "^6.12.0",
     "@supabase/supabase-js": "^2.99.1",
     "bcryptjs": "^3.0.3",
     "bullmq": "^5.71.1",
@@ -32,7 +33,6 @@
     "socket.io": "^4.8.3"
   },
   "devDependencies": {
-    "@prisma/client": "^6.19.2",
     "nodemon": "^3.1.14",
     "prisma": "^6.12.0",
     "smee-client": "^5.0.0"
