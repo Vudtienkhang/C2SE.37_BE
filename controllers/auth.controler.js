@@ -153,7 +153,7 @@ export const getUserProfile = async (req, res) => {
     console.error('Lỗi getUserProfile controller:', error);
     return res.status(500).json({
       success: false,
-      message: 'Lỗi máy chủ nội bộ',
+      message: error.message || 'Lỗi máy chủ nội bộ',
     });
   }
 };
