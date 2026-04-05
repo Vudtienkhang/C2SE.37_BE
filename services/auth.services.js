@@ -138,52 +138,43 @@ export const getUserById = async (id) => {
   const numericId = parseInt(id, 10);
   const cacheKey = `user:profile:${numericId}`;
 
-  // 1. Try to get from Redis
+  // 1. Thử lấy từ Redis với cơ chế Timeout (3 giây) để tránh treo API
   try {
-    const cached = await redis.get(cacheKey);
+    const cached = await Promise.race([
+      redis.get(cacheKey),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Redis timeout')), 3000))
+    ]);
+    
     if (cached) {
       console.log(`[CACHE_HIT] Profile for user: ${numericId}`);
       return JSON.parse(cached);
     }
-    console.log(`[CACHE_MISS] Profile for user: ${numericId}. Fetching from DB...`);
   } catch (err) {
-    console.warn('[REDIS] Profile cache read error:', err.message);
+    console.warn('[REDIS_TIMEOUT/ERROR] Skipping cache:', err.message);
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: numericId },
-  });
+  console.log(`[DB_FETCH] Fetching profile for user: ${numericId}...`);
+
+  // 2. Lấy dữ liệu từ DB song song (Parallel) để tăng tốc độ
+  const [user, customer, driver, wallet] = await Promise.all([
+    prisma.user.findUnique({ where: { id: numericId } }),
+    prisma.customer.findUnique({ where: { userId: numericId } }),
+    prisma.driver.findUnique({ where: { userId: numericId }, include: { DriverRank: true } }),
+    prisma.wallet.findUnique({ 
+      where: { userId: numericId },
+      include: { transactions: { orderBy: { createdAt: 'desc' }, take: 10 } }
+    })
+  ]);
 
   if (!user) {
     throw new Error('Người dùng không tồn tại.');
   }
 
-  const customer = await prisma.customer.findUnique({
-    where: { userId: numericId }
-  });
-
-  const driver = await prisma.driver.findUnique({
-    where: { userId: numericId },
-    include: { DriverRank: true }
-  });
-
-  const wallet = await prisma.wallet.findUnique({
-    where: { userId: numericId },
-    include: {
-      transactions: {
-        orderBy: { createdAt: 'desc' },
-        take: 20
-      }
-    }
-  });
-
-  // Tính toán thông tin hạng tiếp theo cho tài xế
+  // 3. Tính toán thông tin hạng tiếp theo (nếu là tài xế)
   let nextRankInfo = null;
   if (driver && driver.DriverRank) {
     const nextRank = await prisma.driverRank.findFirst({
-      where: {
-        minPoints: { gt: driver.DriverRank.minPoints || 0 }
-      },
+      where: { minPoints: { gt: driver.DriverRank.minPoints || 0 } },
       orderBy: { minPoints: 'asc' }
     });
 
@@ -220,12 +211,10 @@ export const getUserById = async (id) => {
     } : { balance: 0, transactions: [] }
   };
 
-  // 3. Save to Redis
-  try {
-    await redis.set(cacheKey, JSON.stringify(result), 'EX', 1800); // 30 minutes
-  } catch (err) {
-    console.warn('[REDIS] Profile cache write error:', err.message);
-  }
+  // 4. Lưu vào Redis (Background - không bắt user đợi)
+  redis.set(cacheKey, JSON.stringify(result), 'EX', 1800).catch(err => {
+    console.warn('[REDIS_WRITE_ERROR]', err.message);
+  });
 
   return result;
 };
