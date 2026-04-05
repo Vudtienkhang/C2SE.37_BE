@@ -126,10 +126,16 @@ export const invalidateProfileCache = async (id) => {
   try {
     const numericId = parseInt(id, 10);
     const cacheKey = `user:profile:${numericId}`;
-    await redis.del(cacheKey);
+    
+    // Thêm timeout 3 giây cho lệnh xóa để không làm treo các giao dịch (Rút tiền, Cập nhật...)
+    await Promise.race([
+      redis.del(cacheKey),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Redis del timeout')), 3000))
+    ]);
+    
     console.log(`[REDIS_SUCCESS] Clearing key: ${cacheKey}`);
   } catch (err) {
-    console.warn('[REDIS_ERROR] Failed to clear key:', err.message);
+    console.warn('[REDIS_ERROR/TIMEOUT] Failed to clear key, skipping:', err.message);
   }
 };
 
