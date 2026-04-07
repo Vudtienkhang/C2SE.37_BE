@@ -348,7 +348,37 @@ export const initSocket = (server) => {
         const { tripId, status, cancelledBy, cancelReason } = data;
         console.log(`[SOCKET] Received trip:update_status: ${status} for Trip #${tripId}`);
         
-        // 1. CỘP NHẬT TRẠNG THÁI TRONG DB CHÍNH (CRITICAL)
+        // 1. KIỂM TRA TRẠNG THÁI HIỆN TẠI (CRITICAL)
+        const currentTrip = await prisma.trip.findUnique({
+          where: { id: parseInt(tripId) },
+          select: { status: true, driverId: true }
+        });
+
+        if (!currentTrip) {
+          console.error(`[SOCKET ERROR] Trip #${tripId} not found.`);
+          return;
+        }
+
+        // Nếu đã hoàn thành hoặc đã hủy thì không cho cập nhật nữa
+        if (currentTrip.status === 'completed' || currentTrip.status === 'cancelled') {
+          console.warn(`[SOCKET WARN] Trip #${tripId} is already ${currentTrip.status}. Ignoring update to ${status}.`);
+          return;
+        }
+
+        // Định nghĩa các bước chuyển trạng thái hợp lệ
+        const validTransitions = {
+          'requested': ['accepted', 'cancelled'],
+          'accepted': ['arrived', 'cancelled'],
+          'arrived': ['started', 'cancelled'],
+          'started': ['completed', 'cancelled']
+        };
+
+        if (validTransitions[currentTrip.status] && !validTransitions[currentTrip.status].includes(status)) {
+          console.warn(`[SOCKET WARN] Invalid status transition from ${currentTrip.status} to ${status} for Trip #${tripId}`);
+          return;
+        }
+
+        // 2. CỘP NHẬT TRẠNG THÁI TRONG DB CHÍNH
         const trip = await prisma.trip.update({
           where: { id: parseInt(tripId) },
           data: { 

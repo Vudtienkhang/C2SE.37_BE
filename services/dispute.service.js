@@ -95,7 +95,7 @@ export const getDisputeById = async (id) => {
       },
       logs: {
         include: {
-          user: { select: { id: true, fullName: true, role: true } },
+          user: { select: { id: true, fullName: true, role: { select: { name: true } } } },
         },
         orderBy: { createdAt: 'asc' },
       },
@@ -266,6 +266,25 @@ export const getDisputesByTrip = async (tripId) => {
     where: { tripId: parseInt(tripId) },
     include: {
       logs: true,
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+};
+
+/**
+ * Lấy danh sách khiếu nại của một người dùng
+ * @param {number} userId 
+ * @returns {Promise<Array>}
+ */
+export const getDisputesByUser = async (userId) => {
+  return await prisma.dispute.findMany({
+    where: { createdById: parseInt(userId) },
+    include: {
+      trip: { select: { id: true, status: true, createdAt: true, pickupAddress: true, dropoffAddress: true, finalPrice: true } },
+      logs: {
+        orderBy: { createdAt: 'desc' },
+        take: 1 // Lấy log mới nhất để hiển thị trạng thái tóm tắt
+      }
     },
     orderBy: { createdAt: 'desc' },
   });

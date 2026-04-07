@@ -59,6 +59,7 @@ export const createDispute = async (req, res) => {
 export const getDisputeDetail = async (req, res) => {
   try {
     const { id } = req.params;
+    console.log(`[DEBUG] Fetching dispute detail for ID: ${id}`);
     const dispute = await disputeService.getDisputeById(id);
 
     if (!dispute) {
@@ -68,14 +69,50 @@ export const getDisputeDetail = async (req, res) => {
       });
     }
 
+    // 1. Kiểm tra Quyền Truy Cập: Chỉ Admin hoặc người tạo mới được xem
+    const requesterId = req.user?.id || (req.admin && req.admin.id);
+    const isAdmin = !!req.admin;
+    
+    if (!isAdmin && dispute.createdById !== requesterId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bạn không có quyền xem chi tiết khiếu nại này.',
+      });
+    }
+
     return res.status(200).json({
       success: true,
       data: dispute,
     });
   } catch (error) {
+    console.error('Lỗi khi lấy chi tiết khiếu nại:', error);
     return res.status(500).json({
       success: false,
       message: error.message || 'Lỗi khi lấy thông tin khiếu nại.',
+    });
+  }
+};
+
+/**
+ * Lấy khiếu nại của tôi (Người dùng đang đăng nhập)
+ */
+export const getMyDisputes = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    console.log(`[DEBUG] Fetching disputes for UserID: ${userId}`);
+    const disputes = await disputeService.getDisputesByUser(userId);
+
+    console.log(`[DEBUG] Found ${disputes.length} disputes for UserID: ${userId}`);
+
+    return res.status(200).json({
+      success: true,
+      data: disputes,
+    });
+  } catch (error) {
+    console.error('Lỗi khi lấy danh sách khiếu nại của tôi:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Lỗi khi lấy danh sách khiếu nại.',
     });
   }
 };

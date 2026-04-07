@@ -16,6 +16,9 @@ const upload = multer({
 // POST /api/disputes - Tạo khiếu nại mới (kèm bằng chứng)
 router.post('/', verifyToken, upload.array('evidence', 10), disputeController.createDispute);
 
+// GET /api/disputes/my - Danh sách khiếu nại của chính tôi
+router.get('/my', verifyToken, disputeController.getMyDisputes);
+
 // GET /api/disputes/trip/:tripId - Xem lịch sử khiếu nại của 1 chuyến đi
 router.get('/trip/:tripId', verifyToken, disputeController.getTripDisputes);
 
@@ -26,8 +29,8 @@ router.get('/pending-count', verifyAdminToken, disputeController.getPendingCount
 // GET /api/disputes - Danh sách khiếu nại toàn hệ thống (Admin)
 router.get('/', verifyAdminToken, disputeController.listAllDisputes);
 
-// GET /api/disputes/:id - Xem chi tiết khiếu nại
-router.get('/:id', verifyAdminToken, disputeController.getDisputeDetail);
+// GET /api/disputes/:id - Xem chi tiết khiếu nại (Admin hoặc Chủ sở hữu)
+router.get('/:id', verifyToken, disputeController.getDisputeDetail);
 
 // PATCH /api/disputes/:id/status - Cập nhật trạng thái (Admin)
 router.patch('/:id/status', verifyAdminToken, disputeController.updateStatus);

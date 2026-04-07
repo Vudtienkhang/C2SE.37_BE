@@ -136,6 +136,12 @@ async function processTripCompletion(data) {
         return;
       }
 
+      // GUARD: Nếu chuyến đi đã bị hủy, không xử lý completion nữa
+      if (trip.status === 'cancelled') {
+        console.warn(`[WORKER] Trip #${tripId} was CANCELLED. Skipping completion logic.`);
+        return;
+      }
+
       tripResult = trip;
 
       const finalPrice = parseFloat(finalPriceFromJob || trip.finalPrice || trip.priceEstimate || 0);
@@ -323,6 +329,18 @@ async function processReviewScore(data) {
 async function processTripCancellation(data) {
   const { tripId, driverId, cancelledBy } = data;
   console.log(`[WORKER] Starting PROCESS_TRIP_CANCELLATION for Trip #${tripId} by ${cancelledBy}`);
+
+  // Fetch trạng thái hiện tại để kiểm tra
+  const trip = await prisma.trip.findUnique({
+    where: { id: parseInt(tripId) },
+    select: { status: true }
+  });
+
+  // Nếu chuyến đi bằng cách nào đó đã được đánh dấu là completed trước đó, không được phép cancel và refund tự động nữa
+  if (trip?.status === 'completed') {
+    console.warn(`[WORKER] Trip #${tripId} was already COMPLETED. Cannot cancel and refund automatically.`);
+    return;
+  }
   
   try {
     // 1. Hoàn lại Voucher (nếu có sử dụng)
