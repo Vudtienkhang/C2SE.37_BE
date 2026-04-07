@@ -227,7 +227,7 @@ export const resolvePenalty = async (req, res) => {
 export const listAllDisputes = async (req, res) => {
   try {
     const { status, reason, skip, take } = req.query;
-    console.log(`[DisputeController] Listing all disputes with filters:`, { status, reason, skip, take });
+    console.log(`[DisputeController] Admin listing disputes. Filters: [status:${status || 'ALL'}, reason:${reason || 'NONE'}, skip:${skip || 0}, take:${take || 20}]`);
     const result = await disputeService.getAllDisputes({ status, reason, skip, take });
 
     return res.status(200).json({

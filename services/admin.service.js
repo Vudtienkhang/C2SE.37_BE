@@ -316,3 +316,65 @@ export const updateSystemConfig = async (key, data) => {
 };
 
 
+
+/**
+ * Lấy tất cả các chuyến đi cho Admin quản lý
+ */
+export const getAllTrips = async () => {
+    return await prisma.trip.findMany({
+        include: {
+            customer: {
+                select: {
+                    id: true,
+                    fullName: true,
+                    avatarUrl: true,
+                }
+            },
+            driver: {
+                select: {
+                    id: true,
+                    fullName: true,
+                    avatarUrl: true,
+                }
+            },
+            payments: true,
+        },
+        orderBy: {
+            createdAt: 'desc'
+        }
+    });
+};
+
+/**
+ * Lấy chi tiết một chuyến đi (dành cho Admin)
+ * @param {number} tripId 
+ */
+export const getTripDetailAdmin = async (tripId) => {
+    return await prisma.trip.findUnique({
+        where: { id: parseInt(tripId) },
+        include: {
+            customer: {
+                include: { 
+                    user: { select: { id: true, fullName: true, phone: true, avatarUrl: true, email: true } },
+                    _count: { select: { trips: true } }
+                }
+            },
+            driver: {
+                include: { user: { select: { id: true, fullName: true, phone: true, avatarUrl: true, email: true } } }
+            },
+            vehicle: true,
+            payments: true,
+            feeBreakdowns: true,
+            commissions: true,
+            review: true,
+            disputes: {
+                include: {
+                    createdBy: { select: { fullName: true, roleId: true } }
+                }
+            },
+            locationHistory: {
+                orderBy: { createdAt: 'asc' }
+            }
+        }
+    });
+};

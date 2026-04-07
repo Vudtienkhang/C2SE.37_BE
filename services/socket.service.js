@@ -326,6 +326,9 @@ export const initSocket = (server) => {
         // 6. Xóa khỏi pending
         pendingTrips.delete(requestId);
 
+        // 7. BROADCAST TO ADMINS (Real-time updates)
+        io.emit('admin:trip_updated', { tripId: trip.id, type: 'new_trip' });
+
       } catch (error) {
         console.error('[TRIP ERROR] Accept error:', error);
         if (error.message === 'WALLET_INSUFFICIENT_FUNDS') {
@@ -431,6 +434,9 @@ export const initSocket = (server) => {
         // 3. THÔNG BÁO CHO CÁC BÊN NGAY LẬP TỨC
         console.log(`[SOCKET] Emitting trip:status_updated for Trip #${tripId} with status: ${status}`);
         io.to(`trip_${tripId}`).emit('trip:status_updated', { tripId, status });
+        
+        // Broadcast to admins for list update
+        io.emit('admin:trip_updated', { tripId, status, type: 'status_update' });
         
       } catch (error) {
         console.error('[TRIP ERROR] Update status error:', error);

@@ -380,25 +380,29 @@ export const updateDisputeStatus = async (id, status, adminId, note = '') => {
  * @returns {Promise<Object>}
  */
 export const getAllDisputes = async (filters = {}) => {
-  const { status, reason, skip = 0, take = 20 } = filters;
+  let { status, reason, skip, take } = filters;
+  
+  // Đảm bảo skip và take luôn là số nguyên hợp lệ
+  const safeSkip = isNaN(parseInt(skip)) ? 0 : parseInt(skip);
+  const safeTake = isNaN(parseInt(take)) ? 20 : parseInt(take);
 
   const where = {};
-  if (status) where.status = status;
-  if (reason) where.reason = { contains: reason, mode: 'insensitive' };
+  if (status && status.trim() !== '') where.status = status;
+  if (reason && reason.trim() !== '') where.reason = { contains: reason, mode: 'insensitive' };
 
   const [total, items] = await Promise.all([
     prisma.dispute.count({ where }),
     prisma.dispute.findMany({
       where,
       include: {
-        createdBy: { select: { fullName: true, phone: true } },
-        trip: { select: { id: true, status: true } },
+        createdBy: { select: { fullName: true, phone: true, avatarUrl: true } },
+        trip: { select: { id: true, status: true, pickupAddress: true, dropoffAddress: true } },
       },
       orderBy: { createdAt: 'desc' },
-      skip: parseInt(skip),
-      take: parseInt(take),
+      skip: safeSkip,
+      take: safeTake,
     }),
   ]);
 
-  return { total, items, skip, take };
+  return { total, items, skip: safeSkip, take: safeTake };
 };

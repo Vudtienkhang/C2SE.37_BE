@@ -262,3 +262,35 @@ export const updateSystemConfigController = async (req, res) => {
     }
 };
 
+
+export const getAllTrips = async (req, res) => {
+    try {
+        const trips = await authAdmin.getAllTrips();
+        return res.status(200).json({
+            success: true,
+            data: trips
+        });
+    } catch (error) {
+        console.error('Lỗi getAllTrips:', error);
+        return res.status(500).json({ success: false, message: 'Lỗi máy chủ nội bộ' });
+    }
+};
+
+export const getTripDetail = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const trip = await authAdmin.getTripDetailAdmin(id);
+        
+        if (!trip) {
+            return res.status(404).json({ success: false, message: 'Không tìm thấy chuyến đi' });
+        }
+        
+        return res.status(200).json({
+            success: true,
+            data: trip
+        });
+    } catch (error) {
+        console.error('Lỗi getTripDetail:', error);
+        return res.status(500).json({ success: false, message: 'Lỗi máy chủ nội bộ' });
+    }
+};

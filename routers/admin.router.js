@@ -27,8 +27,13 @@ router.put('/drivers/:id/lock', adminController.lockDriver);
 router.put('/drivers/:id/unlock', adminController.unlockDriver);
 router.post('/drivers', adminController.createDriver);
 
+
 // --- Thống kê ---
 router.get('/stats/drivers', verifyAdminToken, adminController.getDriverStatsController);
+
+// --- Quản lý chuyến đi ---
+router.get('/trips', verifyAdminToken, adminController.getAllTrips);
+router.get('/trips/:id', verifyAdminToken, adminController.getTripDetail);
 
 // --- Quản lý hạng tài xế ---
 router.get('/driver-ranks', verifyAdminToken, adminController.getDriverRanksController);
