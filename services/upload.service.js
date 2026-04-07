@@ -202,3 +202,36 @@ export const uploadWithdrawalProofToSupabase = async (withdrawalId, fileBuffer, 
 
   return publicUrlData.publicUrl;
 };
+
+/**
+ * Upload ảnh chân dung tài xế lên Supabase (Bucket: Face_ID)
+ * @param {number} userId 
+ * @param {Buffer} fileBuffer 
+ * @param {string} mimeType 
+ * @returns {Promise<string>} - Public URL của ảnh chân dung
+ */
+export const uploadDriverAvatarToSupabase = async (userId, fileBuffer, mimeType) => {
+  // Xác định extension dựa trên mimeType
+  let ext = 'png';
+  if (mimeType && (mimeType.includes('jpeg') || mimeType.includes('jpg'))) ext = 'jpg';
+  
+  const fileName = `driver_u${userId}_${Date.now()}.${ext}`;
+  
+  const { error } = await supabase.storage
+    .from('Face_ID')
+    .upload(fileName, fileBuffer, {
+      contentType: mimeType || 'image/png',
+      upsert: true,
+    });
+
+  if (error) {
+    console.error('Lỗi upload Face_ID Supabase:', error);
+    throw new Error('Lỗi khi tải ảnh khuôn mặt lên máy chủ. Bạn cần cập nhật bucket Face_ID trong Supabase.');
+  }
+
+  const { data: publicUrlData } = supabase.storage
+    .from('Face_ID')
+    .getPublicUrl(fileName);
+
+  return publicUrlData.publicUrl;
+};

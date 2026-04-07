@@ -122,3 +122,32 @@ export const uploadWithdrawalProof = async (req, res) => {
     });
   }
 };
+
+export const uploadDriverAvatar = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const file = req.file;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'Thiếu ID người dùng.' });
+    }
+
+    if (!file) {
+      return res.status(400).json({ success: false, message: 'Không tìm thấy file ảnh khuôn mặt.' });
+    }
+
+    const avatarUrl = await uploadService.uploadDriverAvatarToSupabase(userId, file.buffer, file.mimetype);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Tải lên ảnh khuôn mặt thành công',
+      data: { avatarUrl },
+    });
+  } catch (error) {
+    console.error('Lỗi uploadDriverAvatar controller:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Lỗi máy chủ nội bộ',
+    });
+  }
+};

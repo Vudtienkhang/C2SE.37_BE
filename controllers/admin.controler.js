@@ -95,8 +95,8 @@ export const getAllDrivers = async (req, res) => {
 export const updateDriverStatus = async (req, res) => {
     try {
         const { id } = req.params;
-        const { status } = req.body;
-        const driver = await authAdmin.updateDriverStatus(id, status);
+        const { status, reason } = req.body;
+        const driver = await authAdmin.updateDriverStatus(id, status, reason);
         return res.status(200).json({
             success: true,
             message: 'Cập nhật trạng thái tài xế thành công',

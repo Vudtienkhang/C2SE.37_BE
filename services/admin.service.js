@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import prisma from '../prisma/prisma.js';
+import notificationService from './notification.service.js';
 const JWT_SECRET = process.env.JWT_SECRET || 'safeway_super_secret_key';
 
 export const loginUser = async ({ email, password }) => {
@@ -70,10 +71,10 @@ export const getAllDrivers = async () => {
     });
 };
 
-export const updateDriverStatus = async (id, status) => {
+export const updateDriverStatus = async (id, status, reason = null) => {
     const updatedDriver = await prisma.driver.update({
         where: { id: parseInt(id) },
-        data: { status },
+        data: { status, reason },
         include: { user: true }
     });
 
@@ -83,6 +84,22 @@ export const updateDriverStatus = async (id, status) => {
             where: { id: updatedDriver.userId },
             data: { roleId: 2 }
         });
+
+        // Gửi thông báo phê duyệt
+        await notificationService.createNotification(
+            updatedDriver.userId,
+            "Hồ sơ tài xế đã được duyệt",
+            "Chúc mừng! Hồ sơ đăng ký tài xế của bạn đã được phê duyệt. Bạn có thể bắt đầu hoạt động ngay bây giờ.",
+            "SUCCESS"
+        );
+    } else if (status === 'rejected') {
+        // Gửi thông báo từ chối
+        await notificationService.createNotification(
+            updatedDriver.userId,
+            "Hồ sơ tài xế bị từ chối",
+            `Rất tiếc, hồ sơ của bạn đã bị từ chối. Lý do: ${reason || 'Không có lý do cụ thể.'}`,
+            "DANGER"
+        );
     }
 
     return updatedDriver;

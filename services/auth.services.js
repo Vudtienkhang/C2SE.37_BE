@@ -91,25 +91,35 @@ export const loginUser = async ({ phone, password }) => {
     })
   ]);
 
-  // 5. Tạo token
+  // 5. Xác định quyền hạn (Nếu tài xế chưa được duyệt, cho phép đăng nhập và sử dụng với quyền Customer)
+  let roleIdToUse = user.roleId;
+  if (user.roleId === 2 && driver && driver.status === 'pending') {
+    roleIdToUse = 3;
+  }
+
+  // 6. Tạo token
   const token = jwt.sign(
-    { id: user.id, phone: user.phone, roleId: user.roleId },
+    { id: user.id, phone: user.phone, roleId: roleIdToUse },
     JWT_SECRET,
     { expiresIn: '7d' }
   );
 
-  // 6. Trả về thông tin người dùng và token
+  // 7. Trả về thông tin người dùng và token
   return {
     user: {
       id: user.id,
       fullName: user.fullName,
       phone: user.phone,
-      roleId: user.roleId,
+      roleId: roleIdToUse,
       driver: driver ? { 
         id: driver.id, 
         status: driver.status, 
         isOnline: driver.isOnline, 
-        rank: driver.DriverRank 
+        rank: driver.DriverRank,
+        cccdNumber: driver.cccdNumber,
+        licenseNumber: driver.licenseNumber,
+        licenseType: driver.licenseType,
+        avatarUrl: driver.avatarUrl
       } : null,
       wallet: wallet ? {
         id: wallet.id,
@@ -165,7 +175,7 @@ export const getUserById = async (id) => {
   const [user, customer, driver, wallet] = await Promise.all([
     prisma.user.findUnique({ where: { id: numericId } }),
     prisma.customer.findUnique({ where: { userId: numericId } }),
-    prisma.driver.findUnique({ where: { userId: numericId }, include: { DriverRank: true } }),
+    prisma.driver.findUnique({ where: { userId: numericId }, include: { DriverRank: true, documents: true } }),
     prisma.wallet.findUnique({ 
       where: { userId: numericId },
       include: { transactions: { orderBy: { createdAt: 'desc' }, take: 10 } }
@@ -176,7 +186,13 @@ export const getUserById = async (id) => {
     throw new Error('Người dùng không tồn tại.');
   }
 
-  // 3. Tính toán thông tin hạng tiếp theo (nếu là tài xế)
+  // 3. Xác định quyền hạn tạm thời
+  let roleIdToUse = user.roleId;
+  if (user.roleId === 2 && driver && driver.status === 'pending') {
+    roleIdToUse = 3;
+  }
+
+  // 4. Tính toán thông tin hạng tiếp theo (nếu là tài xế)
   let nextRankInfo = null;
   if (driver && driver.DriverRank) {
     const nextRank = await prisma.driverRank.findFirst({
@@ -198,7 +214,7 @@ export const getUserById = async (id) => {
     fullName: user.fullName,
     phone: user.phone,
     email: user.email,
-    roleId: user.roleId,
+    roleId: roleIdToUse,
     avatarUrl: customer?.avatarUrl || "https://i.pravatar.cc/300",
     totalRides: driver?.totalTrips || 0,
     rating: driver?.ratingAvg || 5.0,
@@ -208,7 +224,12 @@ export const getUserById = async (id) => {
       isOnline: driver.isOnline,
       totalPoints: driver.totalPoints,
       rank: driver.DriverRank,
-      nextRank: nextRankInfo
+      nextRank: nextRankInfo,
+      cccdNumber: driver.cccdNumber,
+      licenseNumber: driver.licenseNumber,
+      licenseType: driver.licenseType,
+      avatarUrl: driver.avatarUrl,
+      documents: driver.documents
     } : null,
     wallet: wallet ? { 
       id: wallet.id, 
@@ -329,7 +350,7 @@ export const updateUser = async (id, { fullName, phone, email }) => {
   };
 };
 
-export const registerDriver = async ({ userId, fullName, cccdNumber, licenseNumber, licenseType }) => {
+export const registerDriver = async ({ userId, fullName, cccdNumber, licenseNumber, licenseType, avatarUrl }) => {
   const numericUserId = parseInt(userId, 10);
 
   // 1. Kiểm tra người dùng
@@ -358,6 +379,7 @@ export const registerDriver = async ({ userId, fullName, cccdNumber, licenseNumb
       cccdNumber,
       licenseNumber,
       licenseType,
+      avatarUrl: avatarUrl || undefined,
       status: 'pending',
     },
     create: {
@@ -366,6 +388,7 @@ export const registerDriver = async ({ userId, fullName, cccdNumber, licenseNumb
       cccdNumber,
       licenseNumber,
       licenseType,
+      avatarUrl: avatarUrl || null,
       status: 'pending',
     },
   });
