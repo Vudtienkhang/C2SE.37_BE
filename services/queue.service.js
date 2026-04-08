@@ -190,9 +190,7 @@ async function processTripCompletion(data) {
       
       if (driverWallet) {
         if (method === 'WALLET') {
-          // Ví: Khách đã trả toàn bộ finalPrice. Ta cộng DriverEarnings cho khách.
-          // NHƯNG chúng ta cần xử lý việc khách đã trả finalPrice vào escrow.
-          // Công thức chuẩn: Cộng giá trị thực nhận cho tài xế.
+          // Ví: Khách đã trả toàn bộ finalPrice. Ta cộng DriverEarnings cho tài xế.
           await tx.wallet.update({
             where: { id: driverWallet.id },
             data: { balance: { increment: driverEarnings } }
@@ -208,9 +206,9 @@ async function processTripCompletion(data) {
             }
           });
         } else {
-          // Tiền mặt: Tài xế đã cầm finalPrice.
+          // Tiền mặt: Tài xế đã cầm finalPrice (tiền mặt từ khách).
           // Tài xế nợ platform: Hoa hồng + SystemFee.
-          // Tài xế được platform bù: Voucher.
+          // Tài xế được platform bù: Voucher (Phần chênh lệch giữa giá gốc và giá khách trả).
           const netAdjustment = discountAmount - (commissionAmount + systemFee);
           
           if (netAdjustment !== 0) {
@@ -232,13 +230,15 @@ async function processTripCompletion(data) {
         }
       }
 
-      // 3. Tạo bản ghi hoa hồng hệ thống (Chỉ lưu phần Commission)
+      // 3. Tạo bản ghi hoa hồng hệ thống (Lưu cả Commission và SystemFee để Admin dễ thống kê)
+      // Lưu ý: commissionAmount trong DB hiện tại có thể chỉ hiểu là phần % thu thêm.
+      // Chúng ta sẽ lưu Commission thực tế.
       await tx.tripCommission.create({
         data: {
           tripId: trip.id,
           driverId: trip.driverId,
           commissionPolicyId: null,
-          commissionAmount: commissionAmount
+          commissionAmount: commissionAmount + systemFee // TỔNG TIỀN HỆ THỐNG THU ĐƯỢC
         }
       });
 

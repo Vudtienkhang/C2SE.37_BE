@@ -21,20 +21,29 @@ export const getComprehensiveStats = async () => {
     ]);
 
     // 3. Thống kê Tài chính
-    // - Tổng doanh thu (Gross): Tổng finalPrice của các chuyến completed
-    // - Hoa hồng hệ thống (Net): Tổng commissionAmount từ TripCommission
-    const financialStats = await prisma.trip.aggregate({
-        where: { status: 'completed' },
-        _sum: {
-            finalPrice: true
-        }
-    });
+    // - Tổng doanh thu (Gross): Tổng finalPrice của các chuyến completed (Số tiền khách trả thực tế)
+    // - Hoa hồng hệ thống (Net): Tổng commissionAmount từ TripCommission (Đã bao gồm % hoa hồng + phí hệ thống)
+    // - Chi phí Voucher: Tổng discountAmount đã áp dụng cho các chuyến thành công
+    const [financialStats, netCommission, totalVoucherDiscount] = await Promise.all([
+        prisma.trip.aggregate({
+            where: { status: 'completed' },
+            _sum: { finalPrice: true }
+        }),
+        prisma.tripCommission.aggregate({
+            _sum: { commissionAmount: true }
+        }),
+        prisma.voucherUsage.aggregate({
+            where: { trip: { status: 'completed' } },
+            _sum: { discountAmount: true }
+        })
+    ]);
 
-    const netCommission = await prisma.tripCommission.aggregate({
-        _sum: {
-            commissionAmount: true
-        }
-    });
+    const grossRevenue = financialStats._sum.finalPrice || 0;
+    const totalComissionReceived = netCommission._sum.commissionAmount || 0;
+    const voucherCost = totalVoucherDiscount._sum.discountAmount || 0;
+    
+    // Lợi nhuận thực tế (Net Profit) = Tổng hoa hồng thu được - Chi phí bù Voucher cho tài xế
+    const netProfit = totalComissionReceived - voucherCost;
 
     // 4. Thống kê An toàn & Khiếu nại
     const [pendingSOS, pendingDisputes] = await Promise.all([
@@ -107,9 +116,11 @@ export const getComprehensiveStats = async () => {
                 active: activeTrips
             },
             financial: {
-                grossRevenue: financialStats._sum.finalPrice || 0,
-                netCommission: netCommission._sum.commissionAmount || 0,
-                avgTripPrice: completedTrips > 0 ? (financialStats._sum.finalPrice / completedTrips) : 0
+                grossRevenue: grossRevenue,
+                netCommission: totalComissionReceived,
+                netProfit: netProfit,
+                voucherCost: voucherCost,
+                avgTripPrice: completedTrips > 0 ? (grossRevenue / completedTrips) : 0
             },
             safety: {
                 pendingSOS,

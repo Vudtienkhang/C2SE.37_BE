@@ -4,6 +4,7 @@ import redis from '../lib/redis.js';
 import { tripTasksQueue } from '../lib/queue.js';
 import * as authAdminService from './admin.service.js';
 import * as pricingService from './pricing.service.js';
+import { getConfig } from './config.service.js';
 
 let io;
 const pendingTrips = new Map(); // requestId -> { data, driverIds, currentIndex, timeout, customerSocketId }
@@ -26,33 +27,32 @@ export const initSocket = (server) => {
 
     socket.on('driver:register', async (driverId) => {
       try {
-        const id = parseInt(driverId);
-        if (isNaN(id)) return;
-
-        socket.join(`driver_${id}`);
-        socket.join('drivers');
-        console.log(`[SOCKET] Driver ${id} registration received`);
-
-        // TỐI ƯU: Thử update theo ID trước, nếu không tìm thấy thì thử theo userId
-        // Điều này giúp tương thích với cả Frontend cũ (gửi userId) và mới (gửi driverId)
-        try {
-          const updated = await prisma.driver.update({
-            where: { id: id },
-            data: { isOnline: true },
-          });
-          console.log(`[SOCKET] Driver registered by ID: ${updated.id}`);
-        } catch (updateErr) {
-          if (updateErr.code === 'P2025') {
-            // Thử theo userId
-            const updated = await prisma.driver.update({
-              where: { userId: id },
-              data: { isOnline: true },
-            });
-            console.log(`[SOCKET] Driver registered by UserID: ${updated.id}`);
-          } else {
-            throw updateErr;
+        // 1. KIỂM TRA TRẠNG THÁI TÀI XẾ (Bảo mật)
+        const driver = await prisma.driver.findFirst({
+          where: { 
+            OR: [
+              { id: id },
+              { userId: id }
+            ]
           }
+        });
+
+        if (!driver || driver.status !== 'approved') {
+          console.warn(`[SOCKET] Driver ${id} registration rejected: Status is ${driver?.status || 'not_found'}`);
+          socket.emit('driver:error', { message: 'Tài khoản của bạn chưa được duyệt hoặc bị khóa.' });
+          return;
         }
+
+        const actualDriverId = driver.id;
+        socket.join(`driver_${actualDriverId}`);
+        socket.join('drivers');
+        
+        await prisma.driver.update({
+          where: { id: actualDriverId },
+          data: { isOnline: true },
+        });
+
+        console.log(`[SOCKET] Driver ${actualDriverId} registered and online`);
       } catch (err) {
         console.error('Error in driver:register:', err);
       }
@@ -160,7 +160,67 @@ export const initSocket = (server) => {
           return;
         }
 
-        // 3. TÍNH TOÁN GIÁ CHÍNH XÁC VÀ BREAKDOWN (MỚI)
+        // 3. XÁC THỰC KHOẢNG CÁCH VÀ SẮP XẾP ƯU TIÊN THEO HẠNG (DATABASE-DRIVEN)
+        // 3.1. Lấy hệ số ưu tiên từ Database
+        const rankPriorities = await getConfig('DRIVER_RANK_PRIORITY', {
+          SILVER: 1.0,
+          GOLD: 1.1,
+          PLATINUM: 1.25,
+          DIAMOND: 1.5
+        });
+
+        // 3.2. Lấy thông tin tài xế để tính khoảng cách hiệu dụng
+        const driversData = await prisma.driver.findMany({
+          where: { id: { in: driverIds } },
+          include: { DriverRank: true }
+        });
+
+        // 3.3. Tính toán và sắp xếp lại driverIds dựa trên công thức: EffectiveDistance = ActualDistance / Multiplier
+        const sortedDrivers = await Promise.all(driverIds.map(async (dId) => {
+          const driver = driversData.find(d => d.id === dId);
+          if (!driver) return null;
+
+          // Lấy vị trí thực tế của tài xế từ Redis
+          const locStr = await redis.get(`driver:${dId}:last_location`);
+          let actualDist = 999; // Mặc định rất xa nếu không tìm thấy vị trí
+          
+          if (locStr) {
+            const loc = JSON.parse(locStr);
+            // Hàm tính Haversine cơ bản
+            const calculateHaversine = (lat1, lon1, lat2, lon2) => {
+              const R = 6371;
+              const dLat = (lat2 - lat1) * (Math.PI / 180);
+              const dLon = (lon2 - lon1) * (Math.PI / 180);
+              const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                        Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * 
+                        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+              const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+              return R * c;
+            };
+            actualDist = calculateHaversine(parseFloat(pickupLat), parseFloat(pickupLng), loc.lat, loc.lng);
+          }
+
+          const multiplier = rankPriorities[driver.DriverRank?.code] || 1.0;
+          return {
+            id: dId,
+            effectiveDistance: actualDist / multiplier
+          };
+        }));
+
+        // Lọc bỏ null và sắp xếp theo khoảng cách hiệu dụng tăng dần
+        const finalizedDriverIds = sortedDrivers
+          .filter(d => d !== null)
+          .sort((a, b) => a.effectiveDistance - b.effectiveDistance)
+          .map(d => d.id);
+
+        console.log(`[PRIORITY] Drivers re-sorted for Request. Original count: ${driverIds.length}, Final count: ${finalizedDriverIds.length}`);
+
+        if (finalizedDriverIds.length === 0) {
+          socket.emit('trip:error', { message: 'Không tìm thấy tài xế khả dụng để điều phối' });
+          return;
+        }
+
+        // 4. TÍNH TOÁN GIÁ CHÍNH XÁC VÀ BREAKDOWN (MỚI)
         const priceBreakdown = await pricingService.calculateTripPrice({
           distanceKm: parseFloat(distance),
           durationMin: parseFloat(duration),
@@ -192,13 +252,13 @@ export const initSocket = (server) => {
             passengerId: parseInt(passengerId),
             price: priceBreakdown.totalPrice // Ghi đè giá từ FE gửi lên bằng giá tính toán chính xác
           },
-          driverIds,
+          driverIds: finalizedDriverIds, // Dùng danh sách đã được sắp xếp ưu tiên tại Backend
           currentIndex: 0,
           timeout: null,
           customerSocketId: socket.id
         });
 
-        console.log(`[TRIP] New request ${requestId} with calculated price ${priceBreakdown.totalPrice}`);
+        console.log(`[TRIP] New request ${requestId} with re-sorted drivers. First driver: ${finalizedDriverIds[0]}`);
         
         notifyNextDriver(requestId);
         socket.emit('trip:request_sent', { requestId, price: priceBreakdown.totalPrice });
@@ -223,17 +283,45 @@ export const initSocket = (server) => {
     socket.on('trip:accept', async (data) => {
       try {
         const { requestId, driverId } = data;
+        
+        // --- 1. GIẢI QUYẾT RACE CONDITION (CRITICAL) ---
+        // Lấy và xóa ngay lập tức khỏi Map để ngăn chặn driver khác nhận cùng lúc
         const pending = pendingTrips.get(requestId);
         
         if (!pending) {
-          socket.emit('trip:error', { message: 'Yêu cầu này không còn tồn tại hoặc đã hết hạn' });
+          socket.emit('trip:error', { message: 'Yêu cầu này không còn tồn tại hoặc đã được tài xế khác nhận.' });
           return;
         }
 
-        // 1. Dừng timeout
+        // --- 2. XÁC THỰC VÍ KHÁCH HÀNG (TRƯỚC KHI TẠO TRIP) ---
+        const discountAmount = pending.data.discountAmount || 0;
+        const finalPrice = Math.max(0, (parseFloat(pending.data.price) - discountAmount));
+
+        if (pending.data.paymentMethod === 'WALLET') {
+          const customerWallet = await prisma.wallet.findUnique({
+            where: { userId: pending.data.passengerId }
+          });
+          
+          if (!customerWallet || customerWallet.balance < finalPrice) {
+            // Trả lại Map nếu lỗi (để khách hàng có thể thử lại hoặc driver khác không bị khóa vĩnh viễn)
+            // Tuy nhiên thường thì nên hủy request này luôn vì khách không đủ tiền
+            console.warn(`[WALLET GUARD] Passenger ${pending.data.passengerId} insufficient balance: ${customerWallet?.balance} < ${finalPrice}`);
+            socket.emit('trip:error', { message: 'Số dư ví khách hàng không đủ để thực hiện chuyến đi này.' });
+            
+            // Thông báo cho khách hàng
+            io.to(pending.customerSocketId).emit('trip:error', { message: 'Số dư ví không đủ. Vui lòng nạp thêm tiền hoặc đổi phương thức thanh toán.' });
+            pendingTrips.delete(requestId); // Hủy luôn request vì không thanh toán được
+            return;
+          }
+        }
+
+        // Xóa khỏi Map sau khi qua được các bước validate để tài xế khác không nhận được nữa
+        pendingTrips.delete(requestId);
+
+        // 3. Dừng timeout
         clearTimeout(pending.timeout);
 
-        // 2. Tìm hoặc tạo Customer
+        // 4. Tìm hoặc tạo Customer
         let customer = await prisma.customer.findUnique({
           where: { userId: pending.data.passengerId }
         });
@@ -243,7 +331,7 @@ export const initSocket = (server) => {
           });
         }
 
-        // 3. TRANSACTION RÚT GỌN: Chỉ thực hiện những bước bắt buộc để khởi tạo Trip
+        // 5. TRANSACTION: Khởi tạo Trip
         const result = await prisma.$transaction(async (tx) => {
           const trip = await tx.trip.create({
             data: {
@@ -262,7 +350,6 @@ export const initSocket = (server) => {
               vehicleId: pending.data.vehicleId ? parseInt(pending.data.vehicleId) : null,
               status: 'accepted',
               conversation: { create: {} },
-              // Lưu Breakdown vào TripFeeBreakdown
               feeBreakdowns: {
                 create: [
                    { feeType: 'base_fare', amount: pending.data.baseFare },
@@ -285,12 +372,9 @@ export const initSocket = (server) => {
           return trip;
         });
 
-
         const trip = result;
-        const discountAmount = pending.data.discountAmount || 0;
-        const finalPrice = Math.max(0, (parseFloat(pending.data.price) - discountAmount));
 
-        // 4. ĐẨY CÁC TÁC VỤ PHỤ VÀO QUEUE (Thanh toán, Voucher)
+        // 6. ĐẨY CÁC TÁC VỤ PHỤ VÀO QUEUE (Tính toán tiền thực tế, Voucher...)
         await tripTasksQueue.add('PROCESS_TRIP_ACCEPTANCE', {
           tripId: trip.id,
           passengerId: pending.data.passengerId,
@@ -300,7 +384,7 @@ export const initSocket = (server) => {
           discountAmount: discountAmount
         });
 
-        // EMIT NGAY LẬP TỨC CHO TÀI XẾ ĐỂ CHUYỂN GIAO DIỆN
+        // EMIT NGAY LẬP TỨC CHO TÀI XẾ
         socket.emit('trip:accept_success', { 
           tripId: trip.id,
           trip: trip 
@@ -308,7 +392,7 @@ export const initSocket = (server) => {
 
         socket.join(`trip_${trip.id}`);
 
-        // 5. Thông báo cho các bên
+        // 7. Thông báo cho khách
         io.to(pending.customerSocketId).emit('trip:accepted', {
           tripId: trip.id,
           driverName: trip.driver.user.fullName,
@@ -316,26 +400,18 @@ export const initSocket = (server) => {
           vehiclePlate: "43A-123.45" 
         });
 
-        // Thông báo số dư mới cho khách nếu dùng ví
         if (pending.data.paymentMethod === 'WALLET') {
           io.to(`user_${pending.data.passengerId}`).emit('wallet:updated', { 
             reason: 'escrow_hold' 
           });
         }
 
-        // 6. Xóa khỏi pending
-        pendingTrips.delete(requestId);
-
-        // 7. BROADCAST TO ADMINS (Real-time updates)
+        // 8. BROADCAST TO ADMINS
         io.emit('admin:trip_updated', { tripId: trip.id, type: 'new_trip' });
 
       } catch (error) {
         console.error('[TRIP ERROR] Accept error:', error);
-        if (error.message === 'WALLET_INSUFFICIENT_FUNDS') {
-          socket.emit('trip:error', { message: 'Số dư ví khách hàng không đủ' });
-        } else {
-          socket.emit('trip:error', { message: 'Lỗi khi chấp nhận chuyến đi' });
-        }
+        socket.emit('trip:error', { message: 'Lỗi khi chấp nhận chuyến đi' });
       }
     });
 
@@ -604,9 +680,34 @@ export const initSocket = (server) => {
       }
     });
 
-    socket.on('disconnect', () => {
+    socket.on('disconnect', async () => {
       console.log(`Socket disconnected: ${socket.id}`);
+      
+      // Tìm driver ID gắn với socket này (nếu có)
+      // Thông thường driverId được đính kèm vào socket object lúc register
+      // Nếu không, ta có thể dùng Map để track socketId -> driverId
     });
+  });
+
+  // TỐI ƯU: Xử lý ngắt kết nối thực sự cho tài xế
+  // Do Socket.io disconnect có thể do mạng chập chờn, ta dùng một grace period (30s)
+  io.of("/").adapter.on("leave-room", async (room, id) => {
+    if (room.startsWith("driver_")) {
+      const driverId = parseInt(room.replace("driver_", ""));
+      if (isNaN(driverId)) return;
+
+      // Đợi 30 giây xem họ có join lại không
+      setTimeout(async () => {
+        const activeSockets = await io.in(room).fetchSockets();
+        if (activeSockets.length === 0) {
+          console.log(`[SOCKET] Driver ${driverId} offline (No active sockets in room)`);
+          await prisma.driver.update({
+            where: { id: driverId },
+            data: { isOnline: false }
+          }).catch(e => console.error("Error setting driver offline:", e.message));
+        }
+      }, 30000); 
+    }
   });
 
   return io;
