@@ -3,6 +3,7 @@ import * as adminController from '../controllers/admin.controler.js';
 import * as adminCustomerController from '../controllers/admin.customer.controller.js';
 import * as adminStatsController from '../controllers/admin.stats.controller.js';
 import * as adminDriverStatsController from '../controllers/admin.driver-stats.controller.js';
+import * as adminRevenueController from '../controllers/admin.revenue.controller.js';
 import { verifyAdminToken } from '../middlewares/auth.middleware.js';
 
 const router = Router();
@@ -34,6 +35,8 @@ router.post('/drivers', adminController.createDriver);
 // --- Thống kê ---
 router.get('/stats/drivers', verifyAdminToken, adminController.getDriverStatsController);
 router.get('/stats/comprehensive', verifyAdminToken, adminStatsController.getComprehensiveStatsController);
+router.get('/revenue/stats', verifyAdminToken, adminRevenueController.getRevenueStats);
+router.get('/revenue/transactions', verifyAdminToken, adminRevenueController.getRecentTransactions);
 
 // --- Quản lý chuyến đi ---
 router.get('/trips', verifyAdminToken, adminController.getAllTrips);
