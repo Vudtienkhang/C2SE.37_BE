@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase.js';
 import redis from '../lib/redis.js';
 import prisma from '../prisma/prisma.js';
 import logger from '../lib/logger.js';
+import { getIO } from './socket.service.js';
 
 export const registerUser = async ({ fullName, phone, password, roleId }) => {
   // 1. Kiểm tra xem người dùng đã tồn tại chưa (dựa vào số điện thoại)
@@ -49,6 +50,14 @@ export const registerUser = async ({ fullName, phone, password, roleId }) => {
 
     return user;
   });
+
+    // Phát sự kiện cho Admin Dashboard
+    try {
+        const io = getIO();
+        if (io) io.emit('admin:new_user', { id: newUser.id, roleId: newUser.roleId });
+    } catch (err) {
+        logger.warn('Socket emit failed in registerUser');
+    }
 
   return newUser;
 };
@@ -395,6 +404,14 @@ export const registerDriver = async ({ userId, fullName, cccdNumber, licenseNumb
       status: 'pending',
     },
   });
+
+  // Phát sự kiện cho Admin Dashboard
+  try {
+      const io = getIO();
+      if (io) io.emit('admin:driver_registered', { id: driver.id, userId: driver.userId });
+  } catch (err) {
+      logger.warn('Socket emit failed in registerDriver');
+  }
 
   return driver;
 };

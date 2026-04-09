@@ -1,4 +1,5 @@
 import prisma from '../prisma/prisma.js';
+import { getIO } from './socket.service.js';
 
 /**
  * Tạo đánh giá và cập nhật rating tài xế
@@ -33,6 +34,14 @@ export const createReview = async (reviewData) => {
           ratingAvg: stats._avg.rating || 0,
         },
       });
+    }
+
+    // Phát sự kiện cho Admins
+    try {
+        const io = getIO();
+        if (io) io.emit('admin:new_review', { tripId: review.tripId, rating: review.rating });
+    } catch (err) {
+        console.warn('Socket emit failed in createReview');
     }
 
     return review;

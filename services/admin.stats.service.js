@@ -51,7 +51,80 @@ export const getComprehensiveStats = async () => {
         prisma.dispute.count({ where: { status: 'open' } }).catch(() => 0)
     ]);
 
-    // 5. Dữ liệu biểu đồ 7 ngày gần nhất (Trips & Lợi nhuận thực tế)
+    // 5. Thống kê Phân bổ Trạng thái Chuyến đi (Mới)
+    const statusCounts = await prisma.trip.groupBy({
+        by: ['status'],
+        _count: { id: true }
+    });
+
+    const statusDistribution = {
+        requested: 0,
+        accepted: 0,
+        arrived: 0,
+        started: 0,
+        completed: 0,
+        cancelled: 0
+    };
+    statusCounts.forEach(item => {
+        statusDistribution[item.status] = item._count.id;
+    });
+
+    // 6. Thống kê Phân bổ Phương tiện (Dựa trên vehicleType)
+    const vehicleDistribution = await prisma.customerVehicle.groupBy({
+        by: ['vehicleType'],
+        _count: { id: true }
+    });
+
+    // 7. Top 5 Tài xế xuất sắc (Dựa trên số chuyến hoàn thành & Rating)
+    const topDriversRaw = await prisma.driver.findMany({
+        where: { status: 'approved' },
+        take: 5,
+        orderBy: [
+            { totalTrips: 'desc' },
+            { ratingAvg: 'desc' }
+        ],
+        include: {
+            user: { select: { fullName: true, avatarUrl: true } },
+            DriverRank: true,
+            _count: {
+                select: {
+                    trips: { where: { status: 'completed' } }
+                }
+            }
+        }
+    });
+
+    // Tính tỉ lệ hoàn thành cho từng top driver
+    const topDrivers = await Promise.all(topDriversRaw.map(async (d) => {
+        // Lấy ID tài xế một cách an toàn
+        const driverId = Number(d.id);
+        
+        const [completedCount, cancelledCount] = await Promise.all([
+            prisma.trip.count({ where: { driverId: driverId, status: 'completed' } }),
+            prisma.trip.count({ where: { driverId: driverId, status: 'cancelled' } })
+        ]);
+        
+        const totalWork = completedCount + cancelledCount;
+        // Nếu không có dữ liệu chuyến đi thực tế trong bảng Trip, sử dụng totalTrips làm căn cứ tạm thời (mặc định 100% nếu có totalTrips)
+        let rate = 100;
+        if (totalWork > 0) {
+            rate = (completedCount / totalWork) * 100;
+        } else if (d.totalTrips > 0) {
+            rate = 100; // Giả định là hoàn thành hết nếu có số liệu cũ mà không có record Trip
+        }
+
+        return {
+            id: d.id,
+            name: d.user?.fullName || d.fullName || 'N/A',
+            avatar: d.user?.avatarUrl || d.avatarUrl,
+            rating: d.ratingAvg || 0,
+            trips: d.totalTrips,
+            rank: d.DriverRank?.name || 'Thành viên',
+            completionRate: Math.round(rate)
+        };
+    }));
+
+    // 8. Dữ liệu biểu đồ 7 ngày gần nhất (Trips & Lợi nhuận thực tế)
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
@@ -98,16 +171,6 @@ export const getComprehensiveStats = async () => {
         revenue: dailyStats[day].revenue
     })).reverse();
 
-    // 6. Hoạt động gần đây (Lấy 5 chuyến đi mới nhất)
-    const recentTripsList = await prisma.trip.findMany({
-        take: 5,
-        orderBy: { createdAt: 'desc' },
-        include: {
-            customer: { select: { fullName: true } },
-            driver: { select: { fullName: true } }
-        }
-    });
-
     return {
         summary: {
             users: {
@@ -121,7 +184,8 @@ export const getComprehensiveStats = async () => {
                 total: totalTrips,
                 completed: completedTrips,
                 cancelled: cancelledTrips,
-                active: activeTrips
+                active: activeTrips,
+                statusDistribution // Mới
             },
             financial: {
                 grossRevenue: grossRevenue,
@@ -133,18 +197,13 @@ export const getComprehensiveStats = async () => {
             safety: {
                 pendingSOS,
                 pendingDisputes
-            }
+            },
+            vehicles: vehicleDistribution.map(v => ({
+                type: v.vehicleType || 'Khác',
+                count: v._count.id
+            }))
         },
         chartData,
-        recentTrips: recentTripsList.map(t => ({
-            id: `#TR-${t.id}`,
-            customer: t.customer?.fullName || 'N/A',
-            driver: t.driver?.fullName || 'N/A',
-            route: t.pickupAddress && t.dropoffAddress 
-                ? `${t.pickupAddress.split(',')[0]} → ${t.dropoffAddress.split(',')[0]}`
-                : 'Chưa rõ hành trình',
-            status: t.status,
-            time: t.createdAt
-        }))
+        topDrivers
     };
 };

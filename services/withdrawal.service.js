@@ -167,6 +167,9 @@ export const updateWithdrawalStatus = async (requestId, status, adminNote = '', 
           balance: updatedUserWallet.balance 
         });
       }
+
+      // Thông báo cho các admin khác cập nhật lại badge/stats
+      io.emit('admin:update_counts');
     } catch (err) {
       console.warn('[WITHDRAWAL] Socket update notification failed:', err.message);
     }

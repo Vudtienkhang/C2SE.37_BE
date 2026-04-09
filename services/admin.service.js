@@ -48,7 +48,7 @@ export const getAllUsers = async () => {
 };
 
 export const getAllDrivers = async () => {
-    return await prisma.driver.findMany({
+    const drivers = await prisma.driver.findMany({
         include: {
             user: {
                 select: {
@@ -63,12 +63,48 @@ export const getAllDrivers = async () => {
                 include: {
                     documentType: true
                 }
+            },
+            _count: {
+                select: {
+                    trips: {
+                        where: { status: 'completed' }
+                    }
+                }
             }
         },
         orderBy: {
             createdAt: 'desc'
         }
     });
+
+    // Bổ sung thêm đếm số chuyến bị huỷ thủ công (Prisma _count lồng nhau có giới hạn)
+    const driversWithStats = await Promise.all(drivers.map(async (driver) => {
+        const driverId = Number(driver.id);
+        const [completedCount, cancelledCount] = await Promise.all([
+            prisma.trip.count({ where: { driverId: driverId, status: 'completed' } }),
+            prisma.trip.count({ where: { driverId: driverId, status: 'cancelled' } })
+        ]);
+
+        const totalWork = completedCount + cancelledCount;
+        let rate = 100;
+        
+        if (totalWork > 0) {
+            rate = (completedCount / totalWork) * 100;
+        } else if (driver.totalTrips > 0) {
+            rate = 100; // Giả định hoàn thành tốt nếu có số liệu cũ mà không có record Trip
+        }
+
+        return {
+            ...driver,
+            stats: {
+                completed: completedCount,
+                cancelled: cancelledCount,
+                completionRate: Math.round(rate)
+            }
+        };
+    }));
+
+    return driversWithStats;
 };
 
 export const updateDriverStatus = async (id, status, reason = null) => {

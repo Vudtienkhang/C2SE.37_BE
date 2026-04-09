@@ -461,6 +461,13 @@ export const initSocket = (server) => {
 
         if (validTransitions[currentTrip.status] && !validTransitions[currentTrip.status].includes(status)) {
           logger.warn({ tripId, from: currentTrip.status, to: status }, '[SOCKET WARN] Invalid status transition');
+          // Nếu trạng thái mới trùng với trạng thái hiện tại, có thể do App bị lag chưa nhận được emit cũ
+          // Ta phát lại emit để App đồng bộ lại giao diện
+          if (currentTrip.status === status) {
+            io.to(`trip_${tripId}`).emit('trip:status_updated', { tripId, status });
+          } else {
+            socket.emit('trip:error', { message: `Không thể chuyển từ ${currentTrip.status} sang ${status}` });
+          }
           return;
         }
 

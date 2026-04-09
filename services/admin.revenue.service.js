@@ -106,12 +106,17 @@ export const getRevenueStats = async () => {
     })).reverse();
 
     return {
-        stats: [
-            { label: 'Doanh thu ròng hôm nay', value: (todayTrips._sum.finalPrice || 0) },
-            { label: 'Doanh thu hệ thống hôm nay', value: todayNetRevenue },
-            { label: 'Doanh thu hệ thống tháng', value: monthNetRevenue },
-            { label: 'Chờ thanh toán', value: (pendingWithdrawals._sum.amount || 0) },
-        ],
+        stats: {
+            netRevenue: {
+                today: todayNetRevenue,
+                month: monthNetRevenue
+            },
+            grossVolume: {
+                today: (todayTrips._sum.finalPrice || 0),
+                month: (monthTrips._sum.finalPrice || 0)
+            },
+            pendingSettlement: (pendingWithdrawals._sum.amount || 0)
+        },
         chartData
     };
 };

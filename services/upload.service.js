@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase.js';
 import prisma from '../prisma/prisma.js';
+import { getIO } from './socket.service.js';
 
 export const uploadUserAvatarToSupabase = async (id, fileBuffer, mimeType) => {
   // 1. Tạo tên file độc nhất
@@ -97,6 +98,14 @@ export const uploadDriverDocumentToSupabase = async (userId, documentTypeId, fil
       status: 'pending',
     }
   });
+  
+  // Phát sự kiện cho Admins
+  try {
+      const io = getIO();
+      if (io) io.emit('admin:document_updated', { driverId: driver.id, documentTypeId: numericDocTypeId });
+  } catch (err) {
+      console.warn('Socket emit failed in uploadDriverDocument');
+  }
 
   return doc;
 };
