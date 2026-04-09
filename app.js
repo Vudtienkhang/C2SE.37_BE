@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import logger from './lib/logger.js';
 
 const app = express();
 
@@ -10,7 +11,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // Request Logger
 app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  logger.info({ method: req.method, url: req.url }, 'Incoming Request');
   next();
 });
 

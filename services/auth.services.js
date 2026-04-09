@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import { supabase } from '../lib/supabase.js';
 import redis from '../lib/redis.js';
 import prisma from '../prisma/prisma.js';
+import logger from '../lib/logger.js';
 
 export const registerUser = async ({ fullName, phone, password, roleId }) => {
   // 1. Kiểm tra xem người dùng đã tồn tại chưa (dựa vào số điện thoại)
@@ -111,6 +112,7 @@ export const loginUser = async ({ phone, password }) => {
       fullName: user.fullName,
       phone: user.phone,
       roleId: roleIdToUse,
+      avatarUrl: (roleIdToUse === 2 && driver?.avatarUrl) ? driver.avatarUrl : (user.avatarUrl || "https://i.pravatar.cc/300"),
       driver: driver ? { 
         id: driver.id, 
         status: driver.status, 
@@ -143,9 +145,9 @@ export const invalidateProfileCache = async (id) => {
       new Promise((_, reject) => setTimeout(() => reject(new Error('Redis del timeout')), 3000))
     ]);
     
-    console.log(`[REDIS_SUCCESS] Clearing key: ${cacheKey}`);
+    logger.debug({ cacheKey }, '[REDIS] Clearing key');
   } catch (err) {
-    console.warn('[REDIS_ERROR/TIMEOUT] Failed to clear key, skipping:', err.message);
+    logger.warn(err, '[REDIS_ERROR/TIMEOUT] Failed to clear key, skipping');
   }
 };
 
@@ -162,14 +164,14 @@ export const getUserById = async (id) => {
     ]);
     
     if (cached) {
-      console.log(`[CACHE_HIT] Profile for user: ${numericId}`);
+      logger.debug({ userId: numericId }, '[CACHE_HIT] Profile for user');
       return JSON.parse(cached);
     }
   } catch (err) {
-    console.warn('[REDIS_TIMEOUT/ERROR] Skipping cache:', err.message);
+    logger.warn(err, '[REDIS_TIMEOUT/ERROR] Skipping cache');
   }
 
-  console.log(`[DB_FETCH] Fetching profile for user: ${numericId}...`);
+  logger.info({ userId: numericId }, '[DB_FETCH] Fetching profile for user');
 
   // 2. Lấy dữ liệu từ DB song song (Parallel) để tăng tốc độ
   const [user, customer, driver, wallet] = await Promise.all([
@@ -215,7 +217,8 @@ export const getUserById = async (id) => {
     phone: user.phone,
     email: user.email,
     roleId: roleIdToUse,
-    avatarUrl: customer?.avatarUrl || "https://i.pravatar.cc/300",
+    avatarUrl: (roleIdToUse === 2 && driver?.avatarUrl) ? driver.avatarUrl : (customer?.avatarUrl || user.avatarUrl || "https://i.pravatar.cc/300"),
+    totalRides: driver?.totalTrips || 0,
     totalRides: driver?.totalTrips || 0,
     rating: driver?.ratingAvg || 5.0,
     driver: driver ? { 
@@ -240,7 +243,7 @@ export const getUserById = async (id) => {
 
   // 4. Lưu vào Redis (Background - không bắt user đợi)
   redis.set(cacheKey, JSON.stringify(result), 'EX', 1800).catch(err => {
-    console.warn('[REDIS_WRITE_ERROR]', err.message);
+    logger.warn(err, '[REDIS_WRITE_ERROR]');
   });
 
   return result;
@@ -261,7 +264,7 @@ export const uploadUserAvatarToSupabase = async (id, fileBuffer, mimeType) => {
     });
 
   if (error) {
-    console.error('Lỗi upload Supabase:', error);
+    logger.error(error, 'Lỗi upload Supabase');
     throw new Error('Lỗi khi tải ảnh lên máy chủ.');
   }
 

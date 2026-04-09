@@ -14,6 +14,7 @@ router.get('/:id', controller.getVoucherById);
 router.post('/', controller.createVoucher);
 router.put('/:id', controller.updateVoucher);
 router.patch('/:id/toggle', controller.toggleVoucherStatus);
+router.get('/:id/usage', controller.getVoucherUsage);
 router.delete('/:id', controller.deleteVoucher);
 
 export default router;

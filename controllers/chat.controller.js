@@ -11,7 +11,8 @@ export const getMessagesByTripId = async (req, res) => {
       where: { tripId: parseInt(tripId) },
       include: {
         messages: {
-          orderBy: { createdAt: 'asc' },
+          take: 50, // Chỉ lấy 50 tin nhắn gần nhất để tối ưu tốc độ
+          orderBy: { createdAt: 'desc' }, // Lấy từ mới nhất trở về sau
           include: {
             sender: {
               select: {
@@ -29,7 +30,10 @@ export const getMessagesByTripId = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Không tìm thấy cuộc hội thoại cho chuyến đi này' });
     }
 
-    res.json({ success: true, data: conversation.messages });
+    // Đảo ngược lại để hiển thị đúng thứ tự thời gian trên App (cũ trên, mới dưới)
+    const messages = conversation.messages.reverse();
+
+    res.json({ success: true, data: messages });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

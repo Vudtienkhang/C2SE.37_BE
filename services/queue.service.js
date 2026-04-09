@@ -1,13 +1,6 @@
-import { Worker } from 'bullmq';
-import { tripTasksQueue } from '../lib/queue.js';
-import redis from '../lib/redis.js';
-import prisma from '../prisma/prisma.js';
-import * as authAdminService from './admin.service.js';
-import { updateDriverScore } from './driver-score.service.js';
-import * as socketService from './socket.service.js';
-import { invalidateProfileCache } from './auth.services.js';
+import logger from '../lib/logger.js';
 
-console.log('[WORKER] Trip Tasks Worker initialized');
+logger.info('[WORKER] Trip Tasks Worker initialized');
 
 /**
  * Worker xử lý các tác vụ background liên quan đến chuyến đi
@@ -15,7 +8,7 @@ console.log('[WORKER] Trip Tasks Worker initialized');
 const worker = new Worker('trip-tasks', async (job) => {
   const type = job.name;
   const data = job.data;
-  console.log(`[WORKER] Processing job ${job.id} of type ${type}`);
+  logger.info({ jobId: job.id, type }, '[WORKER] Processing job');
 
   try {
     switch (type) {
@@ -32,15 +25,31 @@ const worker = new Worker('trip-tasks', async (job) => {
         await processReviewScore(data);
         break;
       default:
-        console.warn(`[WORKER] Unknown job type: ${type}`);
+        logger.warn({ type }, '[WORKER] Unknown job type');
     }
   } catch (error) {
-    console.error(`[WORKER] Error processing job ${job.id}:`, error);
+    logger.error(error, `[WORKER] Error processing job ${job.id}`);
     throw error; // Để BullMQ tự động retry nếu cần
   }
 }, {
   connection: redis
 });
+
+/**
+ * Kiểm tra xem thời gian hiện tại (HH:mm) có nằm trong khoảng [start, end] không.
+ * Hỗ trợ các khoảng thời gian qua đêm (ví dụ: 22:00 - 05:00)
+ */
+function isTimeInConfigRange(currentHHmm, startHHmm, endHHmm) {
+  if (!startHHmm || !endHHmm) return false;
+  
+  if (startHHmm <= endHHmm) {
+    // Khoảng thời gian trong cùng một ngày (vd: 07:00 - 09:00)
+    return currentHHmm >= startHHmm && currentHHmm <= endHHmm;
+  } else {
+    // Khoảng thời gian qua đêm (vd: 22:00 - 05:00)
+    return currentHHmm >= startHHmm || currentHHmm <= endHHmm;
+  }
+}
 
 /**
  * Xử lý các tác vụ phụ sau khi tài xế chấp nhận chuyến đi
@@ -52,7 +61,7 @@ async function processTripAcceptance(data) {
   const passengerId = parseInt(rawPassengerId);
   const voucherId = rawVoucherId ? parseInt(rawVoucherId) : null;
 
-  console.log(`[PROCESS_TRIP_ACCEPTANCE] Trip #${tripId}, Method: ${paymentMethod}, Final: ${finalPrice}, Discount: ${discountAmount}`);
+  logger.info({ tripId, paymentMethod, finalPrice, discountAmount }, '[PROCESS_TRIP_ACCEPTANCE] Started');
 
   await prisma.$transaction(async (tx) => {
     // 1. Thanh toán bằng ví (nếu có)
@@ -86,6 +95,14 @@ async function processTripAcceptance(data) {
       }
     });
 
+    // 1.6 Cập nhật trạng thái thanh toán trong bảng Trip (Đồng bộ dữ liệu)
+    if (paymentMethod === 'WALLET') {
+      await tx.trip.update({
+        where: { id: tripId },
+        data: { paymentStatus: 'success' }
+      });
+    }
+
     // 2. Cập nhật Voucher (nếu có)
     if (voucherId) {
       await tx.voucherUsage.create({
@@ -107,7 +124,7 @@ async function processTripAcceptance(data) {
   // 3. Clear Passenger Profile Cache (Redis)
   await invalidateProfileCache(passengerId);
 
-  console.log(`[WORKER] Post-acceptance tasks completed for Trip #${tripId}`);
+  logger.info({ tripId }, '[WORKER] Post-acceptance tasks completed');
 }
 
 /**
@@ -116,7 +133,7 @@ async function processTripAcceptance(data) {
  */
 async function processTripCompletion(data) {
   const { tripId, driverId, finalPrice: finalPriceFromJob, paymentMethod: methodFromJob } = data;
-  console.log(`[WORKER] Starting PROCESS_TRIP_COMPLETION for Trip #${tripId}. Data:`, data);
+  logger.info({ tripId, driverId }, '[WORKER] Starting PROCESS_TRIP_COMPLETION');
 
   let tripResult = null;
 
@@ -132,13 +149,13 @@ async function processTripCompletion(data) {
       });
 
       if (!trip || !trip.driver) {
-        console.warn(`[WORKER] Trip #${tripId} not found or has no driver assigned!`);
+        logger.warn({ tripId }, '[WORKER] Trip not found or has no driver assigned!');
         return;
       }
 
       // GUARD: Nếu chuyến đi đã bị hủy, không xử lý completion nữa
       if (trip.status === 'cancelled') {
-        console.warn(`[WORKER] Trip #${tripId} was CANCELLED. Skipping completion logic.`);
+        logger.warn({ tripId }, '[WORKER] Trip was CANCELLED. Skipping completion logic.');
         return;
       }
 
@@ -156,7 +173,8 @@ async function processTripCompletion(data) {
         where: { id: trip.id },
         data: { 
           finalPrice: finalPrice,
-          status: 'completed'
+          status: 'completed',
+          paymentStatus: 'success'
         }
       });
 
@@ -184,7 +202,9 @@ async function processTripCompletion(data) {
       const originalPrice = baseFare + surcharges + systemFee;
       const discountAmount = Math.max(0, originalPrice - finalPrice);
 
-      console.log(`[COMPLETION_LOG] Trip #${tripId}, Method: ${method}, Base: ${baseFare}, Surcharges: ${surcharges}, SystemFee: ${systemFee}, Earnings: ${driverEarnings}, Commission: ${commissionAmount}`);
+      logger.info({ 
+        tripId, method, baseFare, surcharges, systemFee, driverEarnings, commissionAmount 
+      }, '[COMPLETION_LOG] Computed values');
 
       const driverWallet = await tx.wallet.findUnique({ where: { userId: trip.driver.userId } });
       
@@ -230,21 +250,19 @@ async function processTripCompletion(data) {
         }
       }
 
-      // 3. Tạo bản ghi hoa hồng hệ thống (Lưu cả Commission và SystemFee để Admin dễ thống kê)
-      // Lưu ý: commissionAmount trong DB hiện tại có thể chỉ hiểu là phần % thu thêm.
-      // Chúng ta sẽ lưu Commission thực tế.
+      // 3. Tạo bản ghi hoa hồng hệ thống (Chỉ lưu phần % hoa hồng để hiển thị đúng cho tài xế)
       await tx.tripCommission.create({
         data: {
           tripId: trip.id,
           driverId: trip.driverId,
           commissionPolicyId: null,
-          commissionAmount: commissionAmount + systemFee // TỔNG TIỀN HỆ THỐNG THU ĐƯỢC
+          commissionAmount: commissionAmount // CHỈ LƯU HOA HỒNG THỰC TẾ
         }
       });
 
     }, { timeout: 15000 });
   } catch (err) {
-    console.error(`[WORKER ERROR] Transaction failed for Trip #${tripId}:`, err);
+    logger.error(err, `[WORKER ERROR] Transaction failed for Trip #${tripId}`);
     throw err;
   }
 
@@ -254,33 +272,56 @@ async function processTripCompletion(data) {
       const finalDriverId = driverId || tripResult.driverId; 
 
       // 5. CỘNG ĐIỂM HOÀN THÀNH CHUYẾN ĐI & THƯỞNG
-      await updateDriverScore(finalDriverId, 'TRIP_COMPLETED', tripId).catch(e => console.error('[SCORE ERROR]', e));
+      await updateDriverScore(finalDriverId, 'TRIP_COMPLETED', tripId).catch(e => logger.error(e, '[SCORE ERROR]'));
 
       // Thưởng đường dài (> 15km)
       if (tripResult.distanceKm > 15) {
-        await updateDriverScore(finalDriverId, 'LONG_TRIP_BONUS', tripId).catch(e => console.error('[SCORE ERROR]', e));
+        await updateDriverScore(finalDriverId, 'LONG_TRIP_BONUS', tripId).catch(e => logger.error(e, '[SCORE ERROR]'));
       }
 
-      // Thưởng giờ đêm (22:00 - 05:00)
-      const hour = new Date().getHours();
-      if (hour >= 22 || hour < 5) {
-        await updateDriverScore(finalDriverId, 'NIGHT_TRIP_BONUS', tripId).catch(e => console.error('[SCORE ERROR]', e));
-      }
+      // --- 5. QUY ĐỔI THỜI GIAN VÀ XÉT THƯỞNG DỰA TRÊN PRICING CONFIG (DATABASE) ---
+      // Lấy thời gian tạo chuyến đi và chuyển sang múi giờ VN (GMT+7)
+      const tripTimeVN = new Date(tripResult.createdAt.getTime() + (7 * 60 * 60 * 1000));
+      const vnHour = tripTimeVN.getUTCHours();
+      const vnMin = tripTimeVN.getUTCMinutes();
+      const currentHHmm = `${vnHour.toString().padStart(2, '0')}:${vnMin.toString().padStart(2, '0')}`;
 
-      // Thưởng giờ cao điểm (07:00-09:00, 16:30-19:00)
-      const now = new Date();
-      const currentHour = now.getHours();
-      const currentMin = now.getMinutes();
-      const isRushHour = (currentHour === 7 || currentHour === 8) || 
-                         (currentHour === 16 && currentMin >= 30) || 
-                         (currentHour === 17 || currentHour === 18);
-      
-      if (isRushHour) {
-        await updateDriverScore(finalDriverId, 'PEAK_HOUR_BONUS', tripId).catch(e => console.error('[SCORE ERROR]', e));
+      // Lấy cấu hình giá/giờ từ Database
+      const pricingConfig = await prisma.pricingConfig.findFirst({
+        where: { isActive: true },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      if (pricingConfig) {
+        logger.info({ configName: pricingConfig.name }, '[WORKER] Using dynamic PricingConfig for scoring');
+        
+        // Thưởng giờ đêm (ví dụ: 22:00 - 05:00 từ DB)
+        if (isTimeInConfigRange(currentHHmm, pricingConfig.nightStart, pricingConfig.nightEnd)) {
+          logger.info({ currentHHmm, range: `${pricingConfig.nightStart}-${pricingConfig.nightEnd}` }, '[SCORE] NIGHT_TRIP_BONUS applied');
+          await updateDriverScore(finalDriverId, 'NIGHT_TRIP_BONUS', tripId).catch(e => logger.error(e, '[SCORE ERROR]'));
+        }
+
+        // Thưởng giờ cao điểm (Có 2 khung giờ trong DB)
+        const isRushHour = isTimeInConfigRange(currentHHmm, pricingConfig.rushHour1Start, pricingConfig.rushHour1End) || 
+                           isTimeInConfigRange(currentHHmm, pricingConfig.rushHour2Start, pricingConfig.rushHour2End);
+        
+        if (isRushHour) {
+          logger.info({ currentHHmm }, '[SCORE] PEAK_HOUR_BONUS applied');
+          await updateDriverScore(finalDriverId, 'PEAK_HOUR_BONUS', tripId).catch(e => logger.error(e, '[SCORE ERROR]'));
+        }
+      } else {
+        // Fallback nếu không có config trong DB (Dùng giờ mặc định cũ)
+        logger.warn({ tripId }, '[WORKER WARN] No active PricingConfig found. Using fallback ranges.');
+        if (vnHour >= 22 || vnHour < 5) {
+          await updateDriverScore(finalDriverId, 'NIGHT_TRIP_BONUS', tripId).catch(e => logger.error(e, '[SCORE ERROR]'));
+        }
+        if ((vnHour === 7 || vnHour === 8) || (vnHour === 16 && vnMin >= 30) || (vnHour === 17 || vnHour === 18)) {
+          await updateDriverScore(finalDriverId, 'PEAK_HOUR_BONUS', tripId).catch(e => logger.error(e, '[SCORE ERROR]'));
+        }
       }
 
       // 4. Cập nhật hạng tài xế (Sau khi đã cộng điểm và tăng số chuyến)
-      await authAdminService.updateDriverRankAfterTrip(finalDriverId).catch(e => console.error('[RANK ERROR]', e));
+      await authAdminService.updateDriverRankAfterTrip(finalDriverId).catch(e => logger.error(e, '[RANK ERROR]'));
 
       // 6. THÔNG BÁO CẬP NHẬT VÍ (REAL-TIME)
       const finalWallet = await prisma.wallet.findUnique({ 
@@ -288,7 +329,7 @@ async function processTripCompletion(data) {
       });
       
       if (finalWallet) {
-        console.log(`[WORKER] Emitting wallet:updated for user ${tripResult.driver.userId}, balance: ${finalWallet.balance}`);
+        logger.info({ userId: tripResult.driver.userId }, '[WORKER] Emitting wallet:updated');
         
         // Clear Driver Profile Cache (Redis)
         await invalidateProfileCache(tripResult.driver.userId);
@@ -298,11 +339,11 @@ async function processTripCompletion(data) {
         });
       }
     } catch (error) {
-      console.error(`[WORKER] Error in post-completion tasks for Trip #${tripId}:`, error);
+      logger.error(error, `[WORKER] Error in post-completion tasks for Trip #${tripId}`);
     }
   }
 
-  console.log(`[WORKER] Post-completion tasks completed for Trip #${tripId}`);
+  logger.info({ tripId }, '[WORKER] Post-completion tasks completed');
 }
 
 /**
@@ -328,7 +369,7 @@ async function processReviewScore(data) {
  */
 async function processTripCancellation(data) {
   const { tripId, driverId, cancelledBy } = data;
-  console.log(`[WORKER] Starting PROCESS_TRIP_CANCELLATION for Trip #${tripId} by ${cancelledBy}`);
+  logger.info({ tripId, cancelledBy }, '[WORKER] Starting PROCESS_TRIP_CANCELLATION');
 
   // Fetch trạng thái hiện tại để kiểm tra
   const trip = await prisma.trip.findUnique({
@@ -338,7 +379,7 @@ async function processTripCancellation(data) {
 
   // Nếu chuyến đi bằng cách nào đó đã được đánh dấu là completed trước đó, không được phép cancel và refund tự động nữa
   if (trip?.status === 'completed') {
-    console.warn(`[WORKER] Trip #${tripId} was already COMPLETED. Cannot cancel and refund automatically.`);
+    logger.warn({ tripId }, '[WORKER] Trip was already COMPLETED. Cannot cancel and refund.');
     return;
   }
   
@@ -356,7 +397,7 @@ async function processTripCancellation(data) {
           data: { usedCount: { decrement: 1 } }
         })
       ]);
-      console.log(`[WORKER] Reverted voucher usage for Trip #${tripId}, Voucher #${usage.voucherId}`);
+      logger.info({ tripId, voucherId: usage.voucherId }, '[WORKER] Reverted voucher usage');
     }
 
     // 1.5. Hoàn tiền vào ví (nếu thanh toán bằng ví và đã trừ tiền)
@@ -399,7 +440,7 @@ async function processTripCancellation(data) {
               data: { status: 'refunded' }
             })
           ]);
-          console.log(`[WORKER] Refunded ${payment.amount} to user ${tripDetail.customer.userId} for cancelled Trip #${tripId}`);
+          logger.info({ tripId, userId: tripDetail.customer.userId }, '[WORKER] Refunded to user');
 
           // Cập nhật lại số dư trên app
           try {
@@ -410,7 +451,7 @@ async function processTripCancellation(data) {
               balance: wallet.balance + payment.amount 
             });
           } catch (e) {
-             console.error("[WORKER] Emit wallet:updated failed", e);
+             logger.error(e, "[WORKER] Emit wallet:updated failed");
           }
         }
       }
@@ -423,17 +464,17 @@ async function processTripCancellation(data) {
       // Kiểm tra lại hạng (có thể bị hạ hạng nếu điểm xuống thấp)
       await authAdminService.updateDriverRankAfterTrip(driverId);
     } else {
-      console.log(`[WORKER] Trip #${tripId} cancelled by ${cancelledBy}. No point deduction for driver.`);
+      logger.info({ tripId, cancelledBy }, '[WORKER] No point deduction for driver');
     }
   } catch (error) {
-    console.error(`[WORKER ERROR] Cancellation tasks failed for Trip #${tripId}:`, error);
+    logger.error(error, `[WORKER ERROR] Cancellation tasks failed for Trip #${tripId}`);
   }
 }
 
 worker.on('completed', (job) => {
-  console.log(`[WORKER SUCCESS] Job ${job.id} (${job.name}) processed successfully.`);
+  logger.info({ jobId: job.id, name: job.name }, '[WORKER SUCCESS] Job processed successfully');
 });
 
 worker.on('failed', (job, err) => {
-  console.error(`[WORKER FAILURE] Job ${job.id} (${job.name}) failed:`, err.message);
+  logger.error(err, `[WORKER FAILURE] Job ${job.id} (${job.name}) failed`);
 });

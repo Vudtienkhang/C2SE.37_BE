@@ -1,11 +1,8 @@
-import prisma from '../prisma/prisma.js';
-import redis from '../lib/redis.js';
-import { getConfig } from '../services/config.service.js';
-import { RekognitionClient, CompareFacesCommand, DetectFacesCommand } from "@aws-sdk/client-rekognition";
+import logger from '../lib/logger.js';
 
 export const findNearbyDrivers = async (req, res) => {
   const { lat, lng, radius = 5 } = req.query; // Radius mặc định 5km
-  console.log(`[BACKEND] Finding nearby drivers at: lat=${lat}, lng=${lng}, radius=${radius}`);
+  logger.info({ lat, lng, radius }, '[BACKEND] Finding nearby drivers');
 
   if (!lat || !lng) {
     return res.status(400).json({ message: 'Vui lòng cung cấp tọa độ lat và lng' });
@@ -30,6 +27,7 @@ export const findNearbyDrivers = async (req, res) => {
     );
 
     if (!nearbyDriverIds || nearbyDriverIds.length === 0) {
+      logger.debug({ radius }, '[BACKEND] No drivers found in Redis');
       return res.status(200).json([]);
     }
 
@@ -48,6 +46,8 @@ export const findNearbyDrivers = async (req, res) => {
         DriverRank: true // Lấy thêm Rank để tính ưu tiên
       }
     });
+
+    logger.debug({ count: driversInfo.length }, '[BACKEND] After filtering DB');
 
     // 3. Tính toán "Khoảng cách hiệu dụng" (Effective Distance) dựa trên Rank
     const results = driversInfo.map(driver => {
@@ -68,7 +68,7 @@ export const findNearbyDrivers = async (req, res) => {
 
     res.status(200).json(results);
   } catch (error) {
-    console.error('Error finding nearby drivers:', error);
+    logger.error(error, 'Error finding nearby drivers');
     res.status(500).json({ message: 'Lỗi server khi tìm tài xế' });
   }
 };
@@ -77,17 +77,16 @@ export const updateStatus = async (req, res) => {
   try {
     const { driverId } = req.params;
     const { isOnline } = req.body;
-    console.log(`[BACKEND] Received updateStatus request: driverId=${driverId}, isOnline=${isOnline}`);
+    logger.info({ driverId, isOnline }, '[BACKEND] Received updateStatus request');
 
     const driver = await prisma.driver.update({
-
       where: { id: parseInt(driverId) },
       data: { isOnline: !!isOnline },
     });
 
     res.json({ success: true, isOnline: driver.isOnline });
   } catch (error) {
-    console.error('Error updating driver status:', error);
+    logger.error(error, 'Error updating driver status');
     res.status(500).json({ message: 'Lỗi khi cập nhật trạng thái' });
   }
 };
@@ -100,14 +99,12 @@ export const verifyFace = async (req, res) => {
       return res.status(400).json({ message: 'Vui lòng đưa khuôn mặt vào khung ảnh' });
     }
 
-    console.log(`[BACKEND] Verify face online for driverId=${driverId}`);
+    logger.info({ driverId }, '[BACKEND] Verify face online');
 
-    // If AWS credentials don't exist in env, we will mock success to unblock UX and layout tests
+    // If AWS credentials don't exist in env, we will mock success 
     if (!process.env.AWS_ACCESS_KEY_ID) {
-      console.warn('[BACKEND] AWS credentials not found. Mocking successful face verification.');
-      
-      // Giả lập thời gian load giống AI xử lý
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      logger.warn('[BACKEND] AWS credentials not found. Mocking successful face verification.');
+      await new Promise(resolve => setTimeout(resolve, 800)); // Nhanh hơn mock cũ
       
       const driver = await prisma.driver.update({
         where: { id: parseInt(driverId) },
@@ -125,84 +122,92 @@ export const verifyFace = async (req, res) => {
     }
 
     try {
-      // 1. Tải ảnh gốc (Master Image) từ URL và chuyển thành Buffer
-      const baseUrl = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 8080}`;
-      const imageUrl = driver.avatarUrl.startsWith('http') 
-          ? driver.avatarUrl 
-          : `${baseUrl}${driver.avatarUrl.startsWith('/') ? '' : '/'}${driver.avatarUrl}`;
-          
-      const imageResponse = await fetch(imageUrl);
-      if (!imageResponse.ok) {
-         throw new Error('Không thể fetch ảnh gốc từ máy chủ lưu trữ');
-      }
-      
-      const arrayBuffer = await imageResponse.arrayBuffer();
-      const targetImageBuffer = Buffer.from(arrayBuffer);
       const sourceImageBuffer = req.file.buffer;
-      const challengeType = req.body.challengeType; // 'smile' or 'neutral'
+      const challengeType = req.body.challengeType; // 'look_left', 'look_right', 'look_straight'
+      
+      // ============================================
+      // 1. TỐI ƯU: REDIS CACHING CHO MASTER IMAGE
+      // ============================================
+      const cacheKey = `driver:face_buffer:${driverId}`;
+      let targetImageBuffer;
+
+      const cachedBufferHex = await redis.get(cacheKey);
+      if (cachedBufferHex) {
+        logger.debug({ driverId }, '[CACHE_HIT] Using cached master image buffer');
+        targetImageBuffer = Buffer.from(cachedBufferHex, 'hex');
+      } else {
+        logger.info({ driverId }, '[CACHE_MISS] Fetching master image from storage');
+        const baseUrl = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 8080}`;
+        const imageUrl = driver.avatarUrl.startsWith('http') 
+            ? driver.avatarUrl 
+            : `${baseUrl}${driver.avatarUrl.startsWith('/') ? '' : '/'}${driver.avatarUrl}`;
+            
+        const imageResponse = await fetch(imageUrl);
+        if (!imageResponse.ok) throw new Error('Không thể fetch ảnh gốc');
+        
+        const arrayBuffer = await imageResponse.arrayBuffer();
+        targetImageBuffer = Buffer.from(arrayBuffer);
+        
+        // Lưu vào cache (HEX string) trong 1 giờ
+        await redis.setex(cacheKey, 3600, targetImageBuffer.toString('hex'));
+      }
 
       // ============================================
-      // BƯỚC 1: LIVENESS CHECK (Chống ảnh tĩnh 2D)
-      // Sử dụng DetectFacesCommand để đọc sắc thái
+      // 2. TỐI ƯU: PARALLEL EXECUTION (AWS CALLS)
       // ============================================
+      const promises = [];
+
+      // Luôn gọi so khớp nhân dạng
+      const compareCommand = new CompareFacesCommand({
+        SourceImage: { Bytes: sourceImageBuffer },
+        TargetImage: { Bytes: targetImageBuffer },
+        SimilarityThreshold: 85
+      });
+      promises.push(client.send(compareCommand));
+
+      // Nếu có challenge, gọi thêm detect faces song song
       if (challengeType) {
-        console.log(`[BACKEND] Vefifying Liveness: Lệnh yêu cầu [${challengeType}]`);
         const detectCommand = new DetectFacesCommand({
           Image: { Bytes: sourceImageBuffer },
-          Attributes: ["ALL"] // Yêu cầu trả về chi tiết cảm xúc (Smile, EyesOpen...)
+          Attributes: ["ALL"]
         });
+        promises.push(client.send(detectCommand));
+      }
 
-        const detectResponse = await client.send(detectCommand);
-        
+      const results = await Promise.all(promises);
+      const compareResponse = results[0];
+      const detectResponse = challengeType ? results[1] : null;
+
+      // Phân tích kết quả LIVENESS (nếu có)
+      if (challengeType && detectResponse) {
         if (!detectResponse.FaceDetails || detectResponse.FaceDetails.length === 0) {
-           return res.status(400).json({ message: 'Không tìm thấy khuôn mặt nào trong khung ảnh để kiểm tra.' });
+           return res.status(400).json({ message: 'Không tìm thấy khuôn mặt nào trong ảnh.' });
         }
 
         const faceDetail = detectResponse.FaceDetails[0];
-        const pose = faceDetail.Pose;
-        const yaw = pose?.Yaw || 0; 
-
-        // Theo chuẩn AWS Rekognition: 
-        // Yaw > 15: Xoay mặt sang TRÁI (Looking Left)
-        // Yaw < -15: Xoay mặt sang PHẢI (Looking Right)
-        console.log(`[BACKEND] Liveness Result: Yaw=${yaw.toFixed(2)} độ`);
-
-        // Đánh giá dựa trên yêu cầu ngẫu nhiên
-        if (challengeType === 'look_left' && yaw < 15) {
-           return res.status(400).json({ message: 'Liveness thất bại: Yêu cầu XOAY MẶT SANG TRÁI nhưng ảnh đang nhìn thẳng hoặc xoay phải.' });
-        }
+        const yaw = faceDetail.Pose?.Yaw || 0; 
         
+        if (challengeType === 'look_left' && yaw < 15) {
+           return res.status(400).json({ message: 'Chưa xoay mặt sang TRÁI.' });
+        }
         if (challengeType === 'look_right' && yaw > -15) {
-           return res.status(400).json({ message: 'Liveness thất bại: Yêu cầu XOAY MẶT SANG PHẢI nhưng ảnh đang nhìn thẳng hoặc xoay trái.' });
+           return res.status(400).json({ message: 'Chưa xoay mặt sang PHẢI.' });
         }
-
         if (challengeType === 'look_straight' && (yaw > 15 || yaw < -15)) {
-           return res.status(400).json({ message: 'Liveness thất bại: Yêu cầu NHÌN THẲNG nhưng ảnh đang bị xoay mặt.' });
+           return res.status(400).json({ message: 'Vui lòng NHÌN THẲNG.' });
         }
-
-        console.log(`[BACKEND] Liveness Passed: Tài xế đã làm đúng challenge.`);
+        logger.debug({ challengeType, yaw: yaw.toFixed(2) }, '[BACKEND] Liveness Passed');
       }
 
-      // ============================================
-      // BƯỚC 2: VERIFICATION (So khớp nhân dạng)
-      // ============================================
-      const command = new CompareFacesCommand({
-        SourceImage: { Bytes: sourceImageBuffer },
-        TargetImage: { Bytes: targetImageBuffer },
-        SimilarityThreshold: 85 // Ngưỡng giống nhau yêu cầu đạt 85%
-      });
-
-      const response = await client.send(command);
-
-      // 3. Phân tích kết quả
-      if (!response.FaceMatches || response.FaceMatches.length === 0) {
-        return res.status(400).json({ message: 'Nhận diện thất bại: Gương mặt không trùng khớp với hồ sơ.' });
+      // Phân tích kết quả VERIFICATION
+      if (!compareResponse.FaceMatches || compareResponse.FaceMatches.length === 0) {
+        return res.status(400).json({ message: 'Gương mặt không trùng khớp với hồ sơ.' });
       }
 
-      const match = response.FaceMatches[0];
-      console.log(`[BACKEND] Face match success! Similarity: ${match.Similarity?.toFixed(2)}%`);
+      const match = compareResponse.FaceMatches[0];
+      logger.info({ driverId, similarity: match.Similarity?.toFixed(2) }, '[BACKEND] Face match success');
 
-      // Cập nhật trạng thái trực tuyến nếu thành công
+      // Cập nhật trạng thái trực tuyến
       const updatedDriver = await prisma.driver.update({
         where: { id: parseInt(driverId) },
         data: { isOnline: true },
@@ -211,22 +216,19 @@ export const verifyFace = async (req, res) => {
       return res.json({ 
         success: true, 
         isOnline: updatedDriver.isOnline, 
-        message: 'Xác thực khuôn mặt thành công',
+        message: 'Xác thực thành công',
         similarity: match.Similarity 
       });
 
     } catch (awsError) {
-      console.error('[AWSRekognition] Error:', awsError);
-      
+      logger.error(awsError, '[AWSRekognition] Error');
       if (awsError.name === 'InvalidParameterException') {
-        return res.status(400).json({ message: 'Ảnh chụp bị mờ hoặc không tìm thấy khuôn mặt rõ ràng nào để đối chiếu.' });
+        return res.status(400).json({ message: 'Ảnh chụp bị mờ hoặc không hợp lệ.' });
       }
-      
       return res.status(500).json({ message: 'Lỗi dịch vụ phân tích hình ảnh AI' });
     }
-
   } catch (error) {
-    console.error('Error verifying face:', error);
+    logger.error(error, 'Error verifying face');
     res.status(500).json({ message: 'Lỗi hệ thống khi phân tích khuôn mặt' });
   }
 };

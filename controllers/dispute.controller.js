@@ -70,8 +70,8 @@ export const getDisputeDetail = async (req, res) => {
     }
 
     // 1. Kiểm tra Quyền Truy Cập: Chỉ Admin hoặc người tạo mới được xem
-    const requesterId = req.user?.id || (req.admin && req.admin.id);
-    const isAdmin = !!req.admin;
+    const requesterId = req.user?.id || req.admin?.id;
+    const isAdmin = (req.user?.roleId === 1) || (req.admin?.roleId === 1);
     
     if (!isAdmin && dispute.createdById !== requesterId) {
       return res.status(403).json({

@@ -1,10 +1,10 @@
 import { Server } from 'socket.io';
 import prisma from '../prisma/prisma.js';
 import redis from '../lib/redis.js';
-import { tripTasksQueue } from '../lib/queue.js';
-import * as authAdminService from './admin.service.js';
-import * as pricingService from './pricing.service.js';
 import { getConfig } from './config.service.js';
+import * as pricingService from './pricing.service.js';
+import { tripTasksQueue } from '../lib/queue.js';
+import logger from '../lib/logger.js';
 
 let io;
 const pendingTrips = new Map(); // requestId -> { data, driverIds, currentIndex, timeout, customerSocketId }
@@ -17,16 +17,19 @@ export const initSocket = (server) => {
     },
   });
 
-  console.log('Socket.io initialized');
+  logger.info('Socket.io initialized');
 
   io.on('connection', (socket) => {
     socket.on('user:register', (userId) => {
       socket.join(`user_${userId}`);
-      console.log(`User ${userId} joined their private room`);
+      logger.debug(`User ${userId} joined their private room`);
     });
 
     socket.on('driver:register', async (driverId) => {
       try {
+        const id = parseInt(driverId);
+        if (isNaN(id)) return;
+
         // 1. KIỂM TRA TRẠNG THÁI TÀI XẾ (Bảo mật)
         const driver = await prisma.driver.findFirst({
           where: { 
@@ -38,12 +41,13 @@ export const initSocket = (server) => {
         });
 
         if (!driver || driver.status !== 'approved') {
-          console.warn(`[SOCKET] Driver ${id} registration rejected: Status is ${driver?.status || 'not_found'}`);
+          logger.warn({ driverId: id, status: driver?.status }, '[SOCKET] Driver registration rejected');
           socket.emit('driver:error', { message: 'Tài khoản của bạn chưa được duyệt hoặc bị khóa.' });
           return;
         }
 
         const actualDriverId = driver.id;
+        socket.driverId = actualDriverId; // Lưu vào socket để dùng khi disconnect
         socket.join(`driver_${actualDriverId}`);
         socket.join('drivers');
         
@@ -52,9 +56,9 @@ export const initSocket = (server) => {
           data: { isOnline: true },
         });
 
-        console.log(`[SOCKET] Driver ${actualDriverId} registered and online`);
+        logger.info({ driverId: actualDriverId }, '[SOCKET] Driver registered and online');
       } catch (err) {
-        console.error('Error in driver:register:', err);
+        logger.error(err, 'Error in driver:register');
       }
     });
 
@@ -79,7 +83,7 @@ export const initSocket = (server) => {
           if (driverByUser) {
             actualDriverId = driverByUser.id;
           } else {
-            console.warn(`[SOCKET] Location update ignored: Driver not found for ID or UserID ${id}`);
+            logger.warn({ id }, '[SOCKET] Location update ignored: Driver not found');
             return;
           }
         }
@@ -92,7 +96,7 @@ export const initSocket = (server) => {
 
         io.emit('driver:location_changed', { driverId: actualDriverId, lat, lng });
       } catch (err) {
-        console.error('Error in driver:update_location:', err);
+        logger.error(err, 'Error in driver:update_location');
       }
     });
 
@@ -106,7 +110,7 @@ export const initSocket = (server) => {
 
       // 1. Nếu đã hết danh sách tài xế
       if (pending.currentIndex >= pending.driverIds.length) {
-        console.log(`[TRIP] No more drivers for request ${requestId}`);
+        logger.info({ requestId }, '[TRIP] No more drivers for request');
         io.to(pending.customerSocketId).emit('trip:no_driver_found', { requestId });
         pendingTrips.delete(requestId);
         return;
@@ -116,7 +120,7 @@ export const initSocket = (server) => {
       pending.currentIndex++;
       pendingTrips.set(requestId, pending);
 
-      console.log(`[TRIP] Notifying driver ${driverId} for request ${requestId}`);
+      logger.info({ driverId, requestId }, '[TRIP] Notifying driver for request');
 
       // 2. Gửi yêu cầu tới tài xế
       io.to(`driver_${driverId}`).emit('trip:new_request', {
@@ -126,7 +130,7 @@ export const initSocket = (server) => {
 
       // 3. Đặt timeout 10 giây
       pending.timeout = setTimeout(() => {
-        console.log(`[TRIP] Driver ${driverId} timed out for request ${requestId}`);
+        logger.info({ driverId, requestId }, '[TRIP] Driver timed out for request');
         notifyNextDriver(requestId);
       }, 10000); 
     };
@@ -213,7 +217,10 @@ export const initSocket = (server) => {
           .sort((a, b) => a.effectiveDistance - b.effectiveDistance)
           .map(d => d.id);
 
-        console.log(`[PRIORITY] Drivers re-sorted for Request. Original count: ${driverIds.length}, Final count: ${finalizedDriverIds.length}`);
+        logger.info({ 
+          originalCount: driverIds.length, 
+          finalCount: finalizedDriverIds.length 
+        }, '[PRIORITY] Drivers re-sorted for Request');
 
         if (finalizedDriverIds.length === 0) {
           socket.emit('trip:error', { message: 'Không tìm thấy tài xế khả dụng để điều phối' });
@@ -258,13 +265,13 @@ export const initSocket = (server) => {
           customerSocketId: socket.id
         });
 
-        console.log(`[TRIP] New request ${requestId} with re-sorted drivers. First driver: ${finalizedDriverIds[0]}`);
+        logger.info({ requestId, firstDriver: finalizedDriverIds[0] }, '[TRIP] New request with re-sorted drivers');
         
         notifyNextDriver(requestId);
         socket.emit('trip:request_sent', { requestId, price: priceBreakdown.totalPrice });
 
       } catch (error) {
-        console.error('[TRIP ERROR] Request error:', error);
+        logger.error(error, '[TRIP ERROR] Request error');
         socket.emit('trip:error', { message: 'Lỗi hệ thống khi tính giá hoặc gửi yêu cầu' });
       }
     });
@@ -274,7 +281,7 @@ export const initSocket = (server) => {
       const { requestId } = data;
       const pending = pendingTrips.get(requestId);
       if (pending) {
-        console.log(`[TRIP] Driver declined request ${requestId}. Moving to next...`);
+        logger.info({ requestId }, '[TRIP] Driver declined request. Moving to next...');
         clearTimeout(pending.timeout);
         notifyNextDriver(requestId);
       }
@@ -305,7 +312,7 @@ export const initSocket = (server) => {
           if (!customerWallet || customerWallet.balance < finalPrice) {
             // Trả lại Map nếu lỗi (để khách hàng có thể thử lại hoặc driver khác không bị khóa vĩnh viễn)
             // Tuy nhiên thường thì nên hủy request này luôn vì khách không đủ tiền
-            console.warn(`[WALLET GUARD] Passenger ${pending.data.passengerId} insufficient balance: ${customerWallet?.balance} < ${finalPrice}`);
+            logger.warn({ passengerId: pending.data.passengerId, balance: customerWallet?.balance, finalPrice }, '[WALLET GUARD] Insufficient balance');
             socket.emit('trip:error', { message: 'Số dư ví khách hàng không đủ để thực hiện chuyến đi này.' });
             
             // Thông báo cho khách hàng
@@ -410,7 +417,7 @@ export const initSocket = (server) => {
         io.emit('admin:trip_updated', { tripId: trip.id, type: 'new_trip' });
 
       } catch (error) {
-        console.error('[TRIP ERROR] Accept error:', error);
+        logger.error(error, '[TRIP ERROR] Accept error');
         socket.emit('trip:error', { message: 'Lỗi khi chấp nhận chuyến đi' });
       }
     });
@@ -418,14 +425,14 @@ export const initSocket = (server) => {
     // Tham gia phòng để theo dõi chuyến đi cụ thể
     socket.on('trip:join', (tripId) => {
       socket.join(`trip_${tripId}`);
-      console.log(`Socket ${socket.id} joined trip_${tripId}`);
+      logger.debug({ socketId: socket.id, tripId }, 'Socket joined trip room');
     });
 
     // Cập nhật trạng thái chuyến đi (Tài xế gọi)
     socket.on('trip:update_status', async (data) => {
       try {
         const { tripId, status, cancelledBy, cancelReason } = data;
-        console.log(`[SOCKET] Received trip:update_status: ${status} for Trip #${tripId}`);
+        logger.info({ tripId, status }, '[SOCKET] Received trip:update_status');
         
         // 1. KIỂM TRA TRẠNG THÁI HIỆN TẠI (CRITICAL)
         const currentTrip = await prisma.trip.findUnique({
@@ -434,13 +441,13 @@ export const initSocket = (server) => {
         });
 
         if (!currentTrip) {
-          console.error(`[SOCKET ERROR] Trip #${tripId} not found.`);
+          logger.error({ tripId }, '[SOCKET ERROR] Trip not found');
           return;
         }
 
         // Nếu đã hoàn thành hoặc đã hủy thì không cho cập nhật nữa
         if (currentTrip.status === 'completed' || currentTrip.status === 'cancelled') {
-          console.warn(`[SOCKET WARN] Trip #${tripId} is already ${currentTrip.status}. Ignoring update to ${status}.`);
+          logger.warn({ tripId, status: currentTrip.status, newStatus: status }, '[SOCKET WARN] Trip already finalized. Ignoring update.');
           return;
         }
 
@@ -453,7 +460,7 @@ export const initSocket = (server) => {
         };
 
         if (validTransitions[currentTrip.status] && !validTransitions[currentTrip.status].includes(status)) {
-          console.warn(`[SOCKET WARN] Invalid status transition from ${currentTrip.status} to ${status} for Trip #${tripId}`);
+          logger.warn({ tripId, from: currentTrip.status, to: status }, '[SOCKET WARN] Invalid status transition');
           return;
         }
 
@@ -474,14 +481,14 @@ export const initSocket = (server) => {
 
         // 2. NẾU HOÀN THÀNH, ĐẨY CÁC TÁC VỤ HOA HỒNG/VÍ/XẾP HẠNG VÀO QUEUE
         if (status === 'completed') {
-          console.log(`[SOCKET] Trip #${tripId} COMPLETED. Adding worker job...`);
+          logger.info({ tripId }, '[SOCKET] Trip COMPLETED. Adding worker job...');
           await tripTasksQueue.add('PROCESS_TRIP_COMPLETION', {
             tripId: trip.id,
             driverId: trip.driverId,
             finalPrice: trip.finalPrice || trip.priceEstimate,
             paymentMethod: trip.payments[0]?.method || data.paymentMethod || 'CASH' 
           });
-          console.log(`[SOCKET] Job for Trip #${tripId} added to Queue successfully.`);
+          logger.info({ tripId }, '[SOCKET] Job added to Queue successfully');
 
           if (trip.driverId) {
             await prisma.driver.update({
@@ -492,7 +499,7 @@ export const initSocket = (server) => {
         }
 
         if (status === 'cancelled') {
-          console.log(`[SOCKET] Trip #${tripId} CANCELLED by ${cancelledBy || 'unknown'}. Adding worker job...`);
+          logger.info({ tripId, cancelledBy }, '[SOCKET] Trip CANCELLED. Adding worker job...');
           await tripTasksQueue.add('PROCESS_TRIP_CANCELLATION', {
             tripId: trip.id,
             driverId: trip.driverId,
@@ -508,14 +515,15 @@ export const initSocket = (server) => {
         }
 
         // 3. THÔNG BÁO CHO CÁC BÊN NGAY LẬP TỨC
-        console.log(`[SOCKET] Emitting trip:status_updated for Trip #${tripId} with status: ${status}`);
+        logger.debug({ tripId, status }, '[SOCKET] Emitting trip:status_updated');
         io.to(`trip_${tripId}`).emit('trip:status_updated', { tripId, status });
         
         // Broadcast to admins for list update
         io.emit('admin:trip_updated', { tripId, status, type: 'status_update' });
         
       } catch (error) {
-        console.error('[TRIP ERROR] Update status error:', error);
+        logger.error(error, '[TRIP ERROR] Update status error');
+        socket.emit('trip:error', { message: 'Lỗi hệ thống khi cập nhật trạng thái. Vui lòng kiểm tra kết nối.' });
       }
     });
 
@@ -537,7 +545,7 @@ export const initSocket = (server) => {
             },
           });
         } catch (err) {
-          console.error('Error saving trip location history:', err);
+          logger.error(err, 'Error saving trip location history');
         }
       }
     });
@@ -548,7 +556,7 @@ export const initSocket = (server) => {
     socket.on('trip:sos', async (data) => {
       try {
         const { tripId, callerRole, callerId, lat, lng } = data;
-        console.log(`[SOS ALERT] Signal received from Trip #${tripId} by ${callerRole}`);
+        logger.warn({ tripId, callerRole }, '[SOS ALERT] Signal received');
 
         let newAlert = null;
         // 1. TRY TO SAVE TO DATABASE (PERSISTENCE)
@@ -572,9 +580,9 @@ export const initSocket = (server) => {
               }
             }
           });
-          console.log(`[SOS ALERT] Persistent signal saved (ID: ${newAlert.id})`);
+          logger.warn({ alertId: newAlert.id }, '[SOS ALERT] Persistent signal saved');
         } catch (dbErr) {
-          console.error('[SOS DB ERROR] Failed to save alert to DB. This usually means you need to run migration:', dbErr.message);
+          logger.error(dbErr, '[SOS DB ERROR] Failed to save alert to DB');
           // Fallback if DB save fails: Try to fetch trip info manually to send broadcast
           try {
             const trip = await prisma.trip.findUnique({
@@ -589,7 +597,7 @@ export const initSocket = (server) => {
                newAlert = { trip, createdAt: new Date() }; // Mock object for broadcast
             }
           } catch (tripErr) { 
-             console.error('[SOS] Also failed to fetch trip info:', tripErr.message);
+             logger.error(tripErr, '[SOS] Also failed to fetch trip info');
           }
         }
 
@@ -617,11 +625,11 @@ export const initSocket = (server) => {
 
           // 3. BROADCAST TO ALL ADMINS
           io.emit('admin:sos_alert', payload);
-          console.log(`[SOS ALERT] Broadcasted to admins!`);
+          logger.warn({ tripId }, '[SOS ALERT] Broadcasted to admins!');
         }
         
       } catch (err) {
-        console.error('[SOS ERROR] Global failure in SOS socket:', err);
+        logger.error(err, '[SOS ERROR] Global failure in SOS socket');
       }
     });
 
@@ -632,12 +640,12 @@ export const initSocket = (server) => {
     socket.on('chat:join', (data) => {
       const { tripId } = data;
       socket.join(`chat_${tripId}`);
-      console.log(`Socket ${socket.id} joined chat room for trip ${tripId}`);
+      logger.debug({ socketId: socket.id, tripId }, 'Socket joined chat room');
     });
 
     socket.on('chat:send_message', async (data) => {
       try {
-        const { tripId, senderId, content, messageType = 'text', fileUrl } = data;
+        const { tripId, senderId, content, messageType = 'text', fileUrl, tempId } = data;
         
         // 1. Tìm conversation của trip
         const conversation = await prisma.conversation.findUnique({
@@ -645,12 +653,12 @@ export const initSocket = (server) => {
         });
 
         if (!conversation) {
-          console.error(`[CHAT ERROR] Conversation not found for trip ${tripId}`);
+          logger.error({ tripId }, '[CHAT ERROR] Conversation not found');
           return;
         }
 
         // 2. Lưu message vào DB
-        const message = await prisma.message.create({
+        const dbMessage = await prisma.message.create({
           data: {
             conversationId: conversation.id,
             senderId: parseInt(senderId),
@@ -668,7 +676,10 @@ export const initSocket = (server) => {
           }
         });
 
-        // 3. Broadcast tới các bên trong trip
+        // 3. Chuẩn bị message để gửi đi (bao gồm cả tempId để App khớp dữ liệu)
+        const message = { ...dbMessage, tempId };
+
+        // 4. Broadcast tới các bên trong trip
         // Gửi qua room trip_ để những người đang ở màn hình tracking nhận được badge
         io.to(`trip_${tripId}`).emit('chat:receive_message', message);
         
@@ -676,12 +687,12 @@ export const initSocket = (server) => {
         io.to(`chat_${tripId}`).emit('chat:new_message', message);
 
       } catch (error) {
-        console.error('[CHAT ERROR] Send message error:', error);
+        logger.error(error, '[CHAT ERROR] Send message error');
       }
     });
 
     socket.on('disconnect', async () => {
-      console.log(`Socket disconnected: ${socket.id}`);
+      logger.debug({ socketId: socket.id }, 'Socket disconnected');
       
       // Tìm driver ID gắn với socket này (nếu có)
       // Thông thường driverId được đính kèm vào socket object lúc register
@@ -700,11 +711,11 @@ export const initSocket = (server) => {
       setTimeout(async () => {
         const activeSockets = await io.in(room).fetchSockets();
         if (activeSockets.length === 0) {
-          console.log(`[SOCKET] Driver ${driverId} offline (No active sockets in room)`);
+          logger.info({ driverId }, '[SOCKET] Driver offline (No active sockets)');
           await prisma.driver.update({
             where: { id: driverId },
             data: { isOnline: false }
-          }).catch(e => console.error("Error setting driver offline:", e.message));
+          }).catch(e => logger.error(e, "Error setting driver offline"));
         }
       }, 30000); 
     }

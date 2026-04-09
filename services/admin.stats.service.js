@@ -51,19 +51,21 @@ export const getComprehensiveStats = async () => {
         prisma.dispute.count({ where: { status: 'open' } }).catch(() => 0)
     ]);
 
-    // 5. Dữ liệu biểu đồ 7 ngày gần nhất (Trips & Revenue)
+    // 5. Dữ liệu biểu đồ 7 ngày gần nhất (Trips & Lợi nhuận thực tế)
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-    const recentTripsTrend = await prisma.trip.findMany({
-        where: {
+    const commissionsTrend = await prisma.tripCommission.findMany({
+        where: { createdAt: { gte: sevenDaysAgo } },
+        select: { createdAt: true, commissionAmount: true }
+    });
+
+    const tripsCountTrend = await prisma.trip.findMany({
+        where: { 
             createdAt: { gte: sevenDaysAgo },
             status: 'completed'
         },
-        select: {
-            createdAt: true,
-            finalPrice: true
-        }
+        select: { createdAt: true }
     });
 
     // Gom nhóm dữ liệu theo ngày
@@ -75,11 +77,17 @@ export const getComprehensiveStats = async () => {
         dailyStats[dayStr] = { trips: 0, revenue: 0 };
     }
 
-    recentTripsTrend.forEach(trip => {
+    commissionsTrend.forEach(comm => {
+        const dayStr = new Date(comm.createdAt).toLocaleDateString('vi-VN', { weekday: 'short' });
+        if (dailyStats[dayStr]) {
+            dailyStats[dayStr].revenue += (comm.commissionAmount || 0);
+        }
+    });
+
+    tripsCountTrend.forEach(trip => {
         const dayStr = new Date(trip.createdAt).toLocaleDateString('vi-VN', { weekday: 'short' });
         if (dailyStats[dayStr]) {
             dailyStats[dayStr].trips += 1;
-            dailyStats[dayStr].revenue += (trip.finalPrice || 0);
         }
     });
 

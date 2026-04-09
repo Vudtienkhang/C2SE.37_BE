@@ -2,6 +2,7 @@ import { Router } from "express";
 import * as adminController from '../controllers/admin.controler.js';
 import * as adminCustomerController from '../controllers/admin.customer.controller.js';
 import * as adminStatsController from '../controllers/admin.stats.controller.js';
+import * as adminDriverStatsController from '../controllers/admin.driver-stats.controller.js';
 import { verifyAdminToken } from '../middlewares/auth.middleware.js';
 
 const router = Router();
@@ -26,6 +27,7 @@ router.put('/drivers/:id/status', adminController.updateDriverStatus);
 router.put('/documents/:id/status', adminController.updateDocumentStatus);
 router.put('/drivers/:id/lock', adminController.lockDriver);
 router.put('/drivers/:id/unlock', adminController.unlockDriver);
+router.get('/drivers/:id/revenue-stats', verifyAdminToken, adminDriverStatsController.getDriverRevenueStats);
 router.post('/drivers', adminController.createDriver);
 
 

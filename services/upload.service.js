@@ -229,9 +229,14 @@ export const uploadDriverAvatarToSupabase = async (userId, fileBuffer, mimeType)
     throw new Error('Lỗi khi tải ảnh khuôn mặt lên máy chủ. Bạn cần cập nhật bucket Face_ID trong Supabase.');
   }
 
-  const { data: publicUrlData } = supabase.storage
-    .from('Face_ID')
-    .getPublicUrl(fileName);
+  const publicUrl = publicUrlData.publicUrl;
+  const numericUserId = parseInt(userId, 10);
 
-  return publicUrlData.publicUrl;
+  // 4. Cập nhật vào bảng Driver
+  await prisma.driver.update({
+    where: { userId: numericUserId },
+    data: { avatarUrl: publicUrl }
+  });
+
+  return publicUrl;
 };

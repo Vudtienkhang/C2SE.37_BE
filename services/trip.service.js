@@ -35,6 +35,7 @@ export const fetchTripHistory = async (userId) => {
       customer: { include: { user: true } },
       driver: { include: { user: true } },
       vehicle: true,
+      payments: true, // Bổ sung để hiện phương thức thanh toán
       review: true,
     },
     orderBy: { createdAt: 'desc' },
@@ -73,6 +74,7 @@ export const fetchCurrentTrip = async (userId) => {
       customer: { include: { user: true } },
       driver: { include: { user: true } },
       vehicle: true,
+      payments: true, // Quan trọng để App biết là Ví hay Tiền mặt
     },
     orderBy: { createdAt: 'desc' },
   });
@@ -92,6 +94,7 @@ export const fetchTripById = async (tripId) => {
       vehicle: true,
       commissions: true,
       feeBreakdowns: true,
+      payments: true,
       review: true,
       disputes: true,
       locationHistory: {

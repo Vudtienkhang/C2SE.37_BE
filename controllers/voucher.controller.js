@@ -349,3 +349,43 @@ export const validateVoucher = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+// ─── GET VOUCHER USAGE HISTORY ───────────────────────────────────────────────
+export const getVoucherUsage = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const usages = await prisma.voucherUsage.findMany({
+      where: { voucherId: parseInt(id) },
+      include: {
+        user: {
+          select: {
+            fullName: true,
+            phone: true,
+            email: true
+          }
+        },
+        trip: {
+          select: {
+            id: true,
+            status: true,
+            createdAt: true
+          }
+        }
+      },
+      orderBy: { usedAt: 'desc' }
+    });
+
+    const totalDiscountAmount = usages.reduce((sum, u) => sum + u.discountAmount, 0);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        usages,
+        totalDiscountAmount
+      }
+    });
+  } catch (error) {
+    console.error('getVoucherUsage error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
