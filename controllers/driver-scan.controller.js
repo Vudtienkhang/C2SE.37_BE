@@ -1,4 +1,12 @@
 import logger from '../lib/logger.js';
+import prisma from '../prisma/prisma.js';
+import redis from '../lib/redis.js';
+import { getConfig } from '../services/config.service.js';
+import { 
+  RekognitionClient, 
+  CompareFacesCommand, 
+  DetectFacesCommand 
+} from "@aws-sdk/client-rekognition";
 
 export const findNearbyDrivers = async (req, res) => {
   const { lat, lng, radius = 5 } = req.query; // Radius mặc định 5km
