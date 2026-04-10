@@ -6,7 +6,7 @@ import * as pricingService from './pricing.service.js';
 import { tripTasksQueue } from '../lib/queue.js';
 import logger from '../lib/logger.js';
 
-let io;
+export let io;
 const pendingTrips = new Map(); // requestId -> { data, driverIds, currentIndex, timeout, customerSocketId }
 
 export const initSocket = (server) => {

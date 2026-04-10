@@ -7,14 +7,25 @@ const JWT_SECRET = process.env.JWT_SECRET || 'safeway_super_secret_key';
 export const loginUser = async ({ email, password }) => {
     const user = await prisma.user.findUnique({
         where: { email },
+        include: { role: true }
     });
 
     if (!user) {
         throw new Error('Email hoặc mật khẩu không chính xác.');
     }
 
-    if (user.roleId !== 1) {
-        throw new Error('Bạn không có quyền hạn đăng nhập. Tính năng này chỉ dành cho Admin.');
+    if (user.status !== 'active') {
+        throw new Error('Tài khoản của bạn đã bị vô hiệu hoá.');
+    }
+
+    // KIỂM TRA QUYỀN HẠN DYNAMIC (PBAC):
+    // Chỉ cho phép đăng nhập nếu Role của user này có ít nhất 1 quyền được gán
+    const permissionCount = await prisma.rolePermission.count({
+        where: { roleId: user.roleId }
+    });
+
+    if (permissionCount === 0) {
+        throw new Error('Bạn không có quyền hạn đăng nhập. Tính năng này chỉ dành cho nhân viên có quyền quản trị.');
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
@@ -36,6 +47,7 @@ export const loginUser = async ({ email, password }) => {
             fullName: user.fullName,
             phone: user.phone,
             roleId: user.roleId,
+            roleName: user.role.name,
         },
         token,
     };
