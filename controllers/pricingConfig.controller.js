@@ -31,7 +31,7 @@ export const createPricingConfig = async (req, res) => {
     const data = req.body;
     
     if (data.isActive === true || data.isActive === 'true') {
-      await pricingService.deactivateOtherConfigs(data.vehicleType);
+      await pricingService.deactivateOtherConfigs(data.vehicleType, data.serviceType || 'FOR_HIRE');
     }
 
     const newConfig = await prisma.pricingConfig.create({
@@ -67,7 +67,7 @@ export const updatePricingConfig = async (req, res) => {
 
     if (data.isActive === true || data.isActive === 'true') {
       const currentConfig = await prisma.pricingConfig.findUnique({ where: { id: parseInt(id) } });
-      await pricingService.deactivateOtherConfigs(data.vehicleType || currentConfig.vehicleType);
+      await pricingService.deactivateOtherConfigs(data.vehicleType || currentConfig.vehicleType, data.serviceType || currentConfig.serviceType);
     }
 
     const updatedConfig = await prisma.pricingConfig.update({
@@ -111,7 +111,7 @@ export const deletePricingConfig = async (req, res) => {
 
 export const calculatePrice = async (req, res) => {
   try {
-    const { distanceKm, durationMin, vehicleType, pickupLat, pickupLng, weather } = req.body;
+    const { distanceKm, durationMin, vehicleType, serviceType, pickupLat, pickupLng, weather } = req.body;
     
     if (distanceKm === undefined || durationMin === undefined || !vehicleType) {
       return res.status(400).json({ success: false, message: 'Missing required parameters' });
@@ -121,6 +121,7 @@ export const calculatePrice = async (req, res) => {
       distanceKm: parseFloat(distanceKm),
       durationMin: parseFloat(durationMin),
       vehicleType,
+      serviceType,
       pickupLat: pickupLat ? parseFloat(pickupLat) : undefined,
       pickupLng: pickupLng ? parseFloat(pickupLng) : undefined,
       weather: weather || 'auto'

@@ -14,7 +14,7 @@ export const getAllDocumentTypes = async () => {
  * Tạo mới một loại giấy tờ
  */
 export const createDocumentType = async (data) => {
-    const { name, code, description, isRequired } = data;
+    const { name, code, description, isRequired, applicableService } = data;
     
     // Kiểm tra xem code đã tồn tại chưa
     const existing = await prisma.documentType.findUnique({
@@ -31,6 +31,7 @@ export const createDocumentType = async (data) => {
             code,
             description,
             isRequired: isRequired ?? true,
+            applicableService: applicableService || 'BOTH',
             isActive: true
         }
     });
@@ -40,7 +41,7 @@ export const createDocumentType = async (data) => {
  * Cập nhật loại giấy tờ
  */
 export const updateDocumentType = async (id, data) => {
-    const { name, code, description, isRequired, isActive } = data;
+    const { name, code, description, isRequired, isActive, applicableService } = data;
 
     // Kiểm tra ID có tồn tại không
     const existing = await prisma.documentType.findUnique({
@@ -68,7 +69,31 @@ export const updateDocumentType = async (id, data) => {
             code,
             description,
             isRequired,
-            isActive
+            isActive,
+            applicableService
         }
+    });
+};
+
+/**
+ * Xoá loại giấy tờ
+ */
+export const deleteDocumentType = async (id) => {
+    // Kiểm tra ID có tồn tại không
+    const existing = await prisma.documentType.findUnique({
+        where: { id: parseInt(id) }
+    });
+
+    if (!existing) {
+        throw new Error('Không tìm thấy loại giấy tờ này.');
+    }
+
+    // Thủ công dọn dẹp các tài liệu liên quan để tránh lỗi khoá ngoại
+    await prisma.driverDocument.deleteMany({
+        where: { documentTypeId: parseInt(id) }
+    });
+
+    return await prisma.documentType.delete({
+        where: { id: parseInt(id) }
     });
 };

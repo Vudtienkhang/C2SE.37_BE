@@ -69,11 +69,20 @@ export const getDisputeDetail = async (req, res) => {
       });
     }
 
-    // 1. Kiểm tra Quyền Truy Cập: Chỉ Admin hoặc người tạo mới được xem
-    const requesterId = req.user?.id || req.admin?.id;
+    // 1. Kiểm tra Quyền Truy Cập: Admin, người tạo, khách hàng hoặc tài xế liên quan đến chuyến đi
+    const requesterId = parseInt(req.user?.id || req.admin?.id);
     const isAdmin = (req.user?.roleId === 1) || (req.admin?.roleId === 1);
     
-    if (!isAdmin && dispute.createdById !== requesterId) {
+    // Kiểm tra xem user có phải là 1 trong các bên liên quan không
+    const isOwner = dispute.createdById === requesterId;
+    const isCustomerInTrip = dispute.trip?.customer?.userId === requesterId;
+    const isDriverInTrip = dispute.trip?.driver?.userId === requesterId;
+
+    console.log(`[DISPUTE DEBUG] RequesterID: ${requesterId} (Type: ${typeof requesterId}), IsAdmin: ${isAdmin}`);
+    console.log(`[DISPUTE DEBUG] IsOwner: ${isOwner}, IsCustomer: ${isCustomerInTrip}, IsDriver: ${isDriverInTrip}`);
+    console.log(`[DISPUTE DEBUG] TripInfo: CustomerUI=${dispute.trip?.customer?.userId}, DriverUI=${dispute.trip?.driver?.userId}`);
+
+    if (!isAdmin && !isOwner && !isCustomerInTrip && !isDriverInTrip) {
       return res.status(403).json({
         success: false,
         message: 'Bạn không có quyền xem chi tiết khiếu nại này.',

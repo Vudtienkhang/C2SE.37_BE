@@ -224,7 +224,7 @@ export const updateProfile = async (req, res) => {
 
 export const registerDriver = async (req, res) => {
   try {
-    const { userId, fullName, cccdNumber, licenseNumber, licenseType, avatarUrl } = req.body;
+    const { userId, fullName, cccdNumber, licenseNumber, licenseType, avatarUrl, serviceType } = req.body;
 
     if (!userId || !cccdNumber || !licenseNumber) {
       return res.status(400).json({
@@ -239,7 +239,8 @@ export const registerDriver = async (req, res) => {
       cccdNumber,
       licenseNumber,
       licenseType,
-      avatarUrl
+      avatarUrl,
+      serviceType
     });
 
     return res.status(200).json({

@@ -17,6 +17,7 @@ export const calculateTripPrice = async ({
   vehicleType,
   pickupLat,
   pickupLng,
+  serviceType = 'FOR_HIRE', // Mặc định là Lái xe hộ
   weather = 'auto'
 }) => {
   // Normalize vehicle types (e.g., 'car' -> 'car_4')
@@ -28,14 +29,13 @@ export const calculateTripPrice = async ({
   }
 
   // 1. Get active PricingConfig (With Redis Cache)
-  const cacheKey = `pricing:config:${normalizedType}`;
+  const cacheKey = `pricing:config:${serviceType}:${normalizedType}`;
   let config = null;
 
   try {
     const cached = await redis.get(cacheKey);
     if (cached) {
       config = JSON.parse(cached);
-      // console.log(`[PRICING] Cache hit for ${normalizedType}`);
     }
   } catch (redisErr) {
     console.warn('[REDIS] Error reading pricing cache:', redisErr.message);
@@ -45,6 +45,7 @@ export const calculateTripPrice = async ({
     config = await prisma.pricingConfig.findFirst({
       where: { 
         vehicleType: normalizedType,
+        serviceType: serviceType, // Thêm điều kiện serviceType
         isActive: true 
       }
     });
@@ -59,7 +60,7 @@ export const calculateTripPrice = async ({
   }
 
   if (!config) {
-    throw new Error(`No active pricing configuration found for vehicle type: ${vehicleType}`);
+    throw new Error(`No active pricing configuration found for ${serviceType} and vehicle type: ${vehicleType}`);
   }
 
   // 2. Fetch Active Holidays
@@ -91,7 +92,7 @@ export const calculateTripPrice = async ({
   // 5. Calculate Base Fare
   const distanceFare = distanceKm * config.perKmPrice;
   const timeFare = 0; // Removing per minute cost as requested
-  const baseFare = distanceFare + timeFare;
+  const baseFare = config.baseFare + distanceFare + timeFare;
 
   // 6. Calculate Surcharges (Multipliers on BaseFare)
   let nightSurcharge = 0;
@@ -139,13 +140,15 @@ export const calculateTripPrice = async ({
 
 
 /**
- * Ensures only one active config per vehicleType.
+ * Ensures only one active config per vehicleType and serviceType.
  * @param {string} vehicleType 
+ * @param {string} serviceType
  */
-export const deactivateOtherConfigs = async (vehicleType) => {
+export const deactivateOtherConfigs = async (vehicleType, serviceType) => {
   await prisma.pricingConfig.updateMany({
     where: { 
       vehicleType,
+      serviceType,
       isActive: true 
     },
     data: { isActive: false }
@@ -155,8 +158,8 @@ export const deactivateOtherConfigs = async (vehicleType) => {
   try {
     let normalizedType = vehicleType;
     if (normalizedType === 'car') normalizedType = 'car_4';
-    await redis.del(`pricing:config:${normalizedType}`);
-    console.log(`[PRICING] Cache cleared for ${normalizedType}`);
+    await redis.del(`pricing:config:${serviceType}:${normalizedType}`);
+    console.log(`[PRICING] Cache cleared for ${serviceType}:${normalizedType}`);
   } catch (err) {
     console.warn('[REDIS] Failed to clear pricing cache:', err.message);
   }

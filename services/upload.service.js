@@ -238,14 +238,62 @@ export const uploadDriverAvatarToSupabase = async (userId, fileBuffer, mimeType)
     throw new Error('Lỗi khi tải ảnh khuôn mặt lên máy chủ. Bạn cần cập nhật bucket Face_ID trong Supabase.');
   }
 
+  const { data: publicUrlData } = supabase.storage
+    .from('Face_ID')
+    .getPublicUrl(fileName);
+
   const publicUrl = publicUrlData.publicUrl;
   const numericUserId = parseInt(userId, 10);
 
-  // 4. Cập nhật vào bảng Driver
-  await prisma.driver.update({
-    where: { userId: numericUserId },
+  // 4. Chỉ cập nhật vào bảng Driver NẾU hồ sơ đã tồn tại
+  const existingDriver = await prisma.driver.findUnique({ where: { userId: numericUserId } });
+  if (existingDriver) {
+    await prisma.driver.update({
+      where: { userId: numericUserId },
+      data: { avatarUrl: publicUrl }
+    });
+  }
+
+  // Luôn cập nhật ảnh đại diện vào bảng User để đồng bộ hệ thống
+  await prisma.user.update({
+    where: { id: numericUserId },
     data: { avatarUrl: publicUrl }
   });
 
   return publicUrl;
+};
+
+/**
+ * Upload danh sách nhiều ảnh xe lên Supabase (Bucket: Vehicle_Images)
+ * @param {number} driverId 
+ * @param {Array<{buffer: Buffer, mimetype: string}>} files 
+ * @returns {Promise<string[]>} - Mảng các Public URL
+ */
+export const uploadVehicleImagesToSupabase = async (driverId, files) => {
+  if (!files || files.length === 0) return [];
+
+  const uploadPromises = files.map(async (file, index) => {
+    const ext = file.mimetype.includes('jpeg') || file.mimetype.includes('jpg') ? 'jpg' : 'png';
+    const fileName = `vehicle_d${driverId}_${Date.now()}_${index}.${ext}`;
+    
+    const { error } = await supabase.storage
+      .from('Vehicle_Images')
+      .upload(fileName, file.buffer, {
+        contentType: file.mimetype || 'image/png',
+        upsert: true,
+      });
+
+    if (error) {
+      console.error(`Lỗi upload ảnh xe ${index}:`, error);
+      throw new Error(`Lỗi khi tải ảnh xe thứ ${index + 1} lên máy chủ.`);
+    }
+
+    const { data: publicUrlData } = supabase.storage
+      .from('Vehicle_Images')
+      .getPublicUrl(fileName);
+
+    return publicUrlData.publicUrl;
+  });
+
+  return Promise.all(uploadPromises);
 };

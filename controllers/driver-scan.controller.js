@@ -9,8 +9,8 @@ import {
 } from "@aws-sdk/client-rekognition";
 
 export const findNearbyDrivers = async (req, res) => {
-  const { lat, lng, radius = 5 } = req.query; // Radius mặc định 5km
-  logger.info({ lat, lng, radius }, '[BACKEND] Finding nearby drivers');
+  const { lat, lng, radius = 5, serviceType, vehicleType } = req.query; // Radius mặc định 5km
+  logger.info({ lat, lng, radius, serviceType, vehicleType }, '[BACKEND] Finding nearby drivers');
 
   if (!lat || !lng) {
     return res.status(400).json({ message: 'Vui lòng cung cấp tọa độ lat và lng' });
@@ -25,40 +25,81 @@ export const findNearbyDrivers = async (req, res) => {
       DIAMOND: 1.5
     });
 
-    // 1. Sử dụng Redis GEOSEARCH để tìm các driverId trong bán kính radius
-    const nearbyDriverIds = await redis.geosearch(
-      'drivers:locations',
-      'FROMLONLAT', lng, lat,
-      'BYRADIUS', radius, 'km',
-      'WITHDIST',
-      'ASC'
-    );
+    const DRIVER_DEBT_LIMIT = -100000; // Ngưỡng nợ tối đa (100k)
+    const searchRadii = [parseFloat(radius), 10, 15].filter((r, i, self) => self.indexOf(r) === i && r >= 5);
+    
+    let activeDrivers = [];
+    let nearbyDriverIds = [];
+    let actualRadiusUsed = searchRadii[0];
 
-    if (!nearbyDriverIds || nearbyDriverIds.length === 0) {
-      logger.debug({ radius }, '[BACKEND] No drivers found in Redis');
+    // VÒNG LẶP QUÉT BÁN KÍNH TỪ THẤP ĐẾN CAO
+    for (const currentRadius of searchRadii) {
+      actualRadiusUsed = currentRadius;
+      logger.info({ currentRadius }, '[BACKEND] Attempting scan with radius');
+
+      // 1. Sử dụng Redis GEOSEARCH để tìm các driverId trong bán kính radius
+      nearbyDriverIds = await redis.geosearch(
+        'drivers:locations',
+        'FROMLONLAT', lng, lat,
+        'BYRADIUS', currentRadius, 'km',
+        'WITHDIST',
+        'ASC'
+      );
+
+      if (!nearbyDriverIds || nearbyDriverIds.length === 0) {
+        continue; // Thử bán kính lớn hơn
+      }
+
+      const driverIds = nearbyDriverIds.map(item => parseInt(item[0]));
+
+      // 2. Lấy thông tin chi tiết từ DB (chỉ lấy những ông đang online và không bận)
+      const driversInfo = await prisma.driver.findMany({
+        where: {
+          id: { in: driverIds },
+          isOnline: true,
+          isBusy: false,
+          status: 'approved',
+          ...(serviceType === 'RIDE_HAILING' ? {
+            vehicles: {
+              some: {
+                type: vehicleType ? vehicleType.toLowerCase() : undefined,
+                status: 'approved'
+              }
+            }
+          } : {})
+        },
+        include: {
+          user: { 
+            select: { 
+              fullName: true, 
+              phone: true,
+              wallet: { select: { balance: true } } // Lấy số dư ví
+            } 
+          },
+          DriverRank: true
+        }
+      });
+
+      // 2.1 Lọc bỏ tài xế nợ vượt ngưỡng
+      activeDrivers = driversInfo.filter(driver => {
+        const balance = driver.user?.wallet?.balance || 0;
+        return balance > DRIVER_DEBT_LIMIT;
+      });
+
+      // Nếu đã tìm thấy tài xế sau khi lọc, thoát vòng lặp
+      if (activeDrivers.length > 0) {
+        logger.info({ count: activeDrivers.length, radius: currentRadius }, '[BACKEND] Found drivers, stopping expansion');
+        break;
+      }
+    }
+
+    if (activeDrivers.length === 0) {
+      logger.debug({ maxRadius: searchRadii[searchRadii.length-1] }, '[BACKEND] No drivers found even after expansion');
       return res.status(200).json([]);
     }
 
-    const driverIds = nearbyDriverIds.map(item => parseInt(item[0]));
-
-    // 2. Lấy thông tin chi tiết từ DB (chỉ lấy những ông đang online và không bận)
-    const driversInfo = await prisma.driver.findMany({
-      where: {
-        id: { in: driverIds },
-        isOnline: true,
-        isBusy: false,
-        status: 'approved'
-      },
-      include: {
-        user: { select: { fullName: true, phone: true } },
-        DriverRank: true // Lấy thêm Rank để tính ưu tiên
-      }
-    });
-
-    logger.debug({ count: driversInfo.length }, '[BACKEND] After filtering DB');
-
     // 3. Tính toán "Khoảng cách hiệu dụng" (Effective Distance) dựa trên Rank
-    const results = driversInfo.map(driver => {
+    const results = activeDrivers.map(driver => {
       const redisData = nearbyDriverIds.find(item => parseInt(item[0]) === driver.id);
       const actualDistance = redisData ? parseFloat(redisData[1]) : 0;
       
@@ -70,7 +111,8 @@ export const findNearbyDrivers = async (req, res) => {
         ...driver,
         actualDistance,
         effectiveDistance,
-        priorityMultiplier: multiplier
+        priorityMultiplier: multiplier,
+        searchRadius: actualRadiusUsed 
       };
     }).sort((a, b) => a.effectiveDistance - b.effectiveDistance); // Sắp xếp theo khoảng cách hiệu dụng
 
@@ -91,6 +133,10 @@ export const updateStatus = async (req, res) => {
       where: { id: parseInt(driverId) },
       data: { isOnline: !!isOnline },
     });
+
+    // XÓA CACHE PROFILE ĐỂ APP CẬP NHẬT TRẠNG THÁI MỚI
+    const { invalidateProfileCache } = await import('../services/auth.services.js');
+    await invalidateProfileCache(driver.userId);
 
     res.json({ success: true, isOnline: driver.isOnline });
   } catch (error) {
@@ -220,6 +266,10 @@ export const verifyFace = async (req, res) => {
         where: { id: parseInt(driverId) },
         data: { isOnline: true },
       });
+      
+      // XÓA CACHE PROFILE ĐỂ APP CẬP NHẬT TRẠNG THÁI MỚI
+      const { invalidateProfileCache } = await import('../services/auth.services.js');
+      await invalidateProfileCache(updatedDriver.userId);
       
       return res.json({ 
         success: true, 

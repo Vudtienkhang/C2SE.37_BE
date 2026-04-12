@@ -6,5 +6,6 @@ const router = express.Router();
 router.get('/', documentTypeController.getDocumentTypes);
 router.post('/', documentTypeController.createDocumentType);
 router.put('/:id', documentTypeController.updateDocumentType);
+router.delete('/:id', documentTypeController.deleteDocumentType);
 
 export default router;

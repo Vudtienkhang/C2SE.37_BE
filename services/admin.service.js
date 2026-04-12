@@ -76,6 +76,7 @@ export const getAllDrivers = async () => {
                     documentType: true
                 }
             },
+            vehicles: true,
             _count: {
                 select: {
                     trips: {
@@ -108,6 +109,9 @@ export const getAllDrivers = async () => {
 
         return {
             ...driver,
+            vehicles: driver.vehicles || [],
+            documents: driver.documents || [],
+            user: driver.user,
             stats: {
                 completed: completedCount,
                 cancelled: cancelledCount,
@@ -150,6 +154,10 @@ export const updateDriverStatus = async (id, status, reason = null) => {
         );
     }
 
+    // XÓA CACHE PROFILE ĐỂ APP CẬP NHẬT QUYỀN HẠN MỚI TỨC THÌ
+    const { invalidateProfileCache } = await import('./auth.services.js');
+    await invalidateProfileCache(updatedDriver.userId);
+
     return updatedDriver;
 };
 
@@ -166,7 +174,7 @@ export const updateDocumentStatus = async (id, status, reviewedById) => {
 
 export const lockDriver = async (id, hours, reason) => {
     const suspendedUntil = hours ? new Date(Date.now() + hours * 60 * 60 * 1000) : null;
-    return await prisma.driver.update({
+    const updatedDriver = await prisma.driver.update({
         where: { id: parseInt(id) },
         data: { 
             status: 'suspended',
@@ -174,10 +182,15 @@ export const lockDriver = async (id, hours, reason) => {
             reason
         }
     });
+
+    const { invalidateProfileCache } = await import('./auth.services.js');
+    await invalidateProfileCache(updatedDriver.userId);
+
+    return updatedDriver;
 };
 
 export const unlockDriver = async (id) => {
-    return await prisma.driver.update({
+    const updatedDriver = await prisma.driver.update({
         where: { id: parseInt(id) },
         data: { 
             status: 'approved',
@@ -185,6 +198,11 @@ export const unlockDriver = async (id) => {
             reason: null
         }
     });
+
+    const { invalidateProfileCache } = await import('./auth.services.js');
+    await invalidateProfileCache(updatedDriver.userId);
+
+    return updatedDriver;
 };
 
 export const createDriverAdmin = async (data) => {

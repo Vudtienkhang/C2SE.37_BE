@@ -28,6 +28,7 @@ import driverScanRouter from './routers/driver-scan.router.js';
 
 import voucherRouter from './routers/voucher.router.js';
 import driverRouter from './routers/driver.router.js';
+import vehicleRouter from './routers/vehicle.router.js';
 
 
 import tripRouter from './routers/trip.router.js';
@@ -60,6 +61,7 @@ app.use('/api/drivers', driverRouter);
 app.use('/api/disputes', disputeRouter);
 app.use('/api/sos', sosRouter);
 app.use('/api/withdrawals', withdrawalRouter);
+app.use('/api/vehicles', vehicleRouter);
 
 
 

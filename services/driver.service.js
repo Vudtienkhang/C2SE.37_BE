@@ -68,7 +68,21 @@ export const getDriverEarningsStats = async (userId) => {
       status: 'completed'
     },
     include: {
-      commissions: true
+      commissions: true,
+      conversation: {
+        include: {
+          messages: {
+            where: {
+              isRead: false,
+              senderId: { not: parseInt(userId) }
+            },
+            select: { id: true } // Chỉ lấy ID để tối ưu, chúng ta chỉ cần đếm số lượng
+          },
+          _count: {
+            select: { messages: true }
+          }
+        }
+      }
     },
     orderBy: { createdAt: 'desc' },
     take: 20
@@ -84,7 +98,9 @@ export const getDriverEarningsStats = async (userId) => {
       finalPrice: trip.finalPrice,
       originalPrice,
       commission,
-      driverIncome: originalPrice - commission
+      driverIncome: originalPrice - commission,
+      hasMessages: (trip.conversation?._count?.messages || 0) > 0,
+      unreadCount: trip.conversation?.messages?.length || 0
     };
   });
 

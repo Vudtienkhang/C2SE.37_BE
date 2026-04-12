@@ -81,3 +81,30 @@ export const updateDocumentType = async (req, res) => {
         });
     }
 };
+
+/**
+ * Xoá loại giấy tờ
+ */
+export const deleteDocumentType = async (req, res) => {
+    try {
+        const { id } = req.params;
+        await documentTypeService.deleteDocumentType(id);
+        
+        return res.status(200).json({
+            success: true,
+            message: 'Xoá loại giấy tờ thành công'
+        });
+    } catch (error) {
+        if (error.message === 'Không tìm thấy loại giấy tờ này.') {
+            return res.status(404).json({
+                success: false,
+                message: error.message
+            });
+        }
+        console.error('Lỗi deleteDocumentType controller:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Lỗi máy chủ nội bộ'
+        });
+    }
+};

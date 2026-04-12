@@ -362,7 +362,7 @@ export const updateUser = async (id, { fullName, phone, email }) => {
   };
 };
 
-export const registerDriver = async ({ userId, fullName, cccdNumber, licenseNumber, licenseType, avatarUrl }) => {
+export const registerDriver = async ({ userId, fullName, cccdNumber, licenseNumber, licenseType, avatarUrl, serviceType }) => {
   const numericUserId = parseInt(userId, 10);
 
   // 1. Kiểm tra người dùng
@@ -392,6 +392,7 @@ export const registerDriver = async ({ userId, fullName, cccdNumber, licenseNumb
       licenseNumber,
       licenseType,
       avatarUrl: avatarUrl || undefined,
+      serviceType: serviceType || undefined,
       status: 'pending',
     },
     create: {
@@ -401,6 +402,7 @@ export const registerDriver = async ({ userId, fullName, cccdNumber, licenseNumb
       licenseNumber,
       licenseType,
       avatarUrl: avatarUrl || null,
+      serviceType: serviceType || 'FOR_HIRE',
       status: 'pending',
     },
   });

@@ -37,6 +37,20 @@ export const fetchTripHistory = async (userId) => {
       vehicle: true,
       payments: true, // Bổ sung để hiện phương thức thanh toán
       review: true,
+      conversation: {
+        include: {
+          messages: {
+            where: {
+              isRead: false,
+              senderId: { not: id }
+            },
+            select: { id: true }
+          },
+          _count: {
+            select: { messages: true }
+          }
+        }
+      }
     },
     orderBy: { createdAt: 'desc' },
   });
@@ -75,6 +89,13 @@ export const fetchCurrentTrip = async (userId) => {
       driver: { include: { user: true } },
       vehicle: true,
       payments: true, // Quan trọng để App biết là Ví hay Tiền mặt
+      conversation: {
+        include: {
+          _count: {
+            select: { messages: true }
+          }
+        }
+      }
     },
     orderBy: { createdAt: 'desc' },
   });

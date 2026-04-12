@@ -5,7 +5,7 @@ class NotificationService {
   /**
    * Tạo thông báo mới và gửi qua socket
    */
-  async createNotification(userId, title, content, type = 'INFO') {
+  async createNotification(userId, title, content, type = 'INFO', data = null) {
     try {
       const notification = await prisma.notification.create({
         data: {
@@ -13,6 +13,7 @@ class NotificationService {
           title,
           content,
           type,
+          data: typeof data === 'object' ? JSON.stringify(data) : data,
         },
       });
 
