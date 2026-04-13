@@ -134,3 +134,42 @@ export const optionalVerifyToken = (req, res, next) => {
         next();
     }
 };
+
+/**
+ * Middleware giới hạn quyền truy cập theo Role
+ * @param  {...string} roles - Danh sách vai trò được phép (ví dụ: 'ADMIN', 'STAFF')
+ */
+export const restrictTo = (...roles) => {
+    return async (req, res, next) => {
+        try {
+            // Kiểm tra user đã được xác thực ở verifyToken/verifyAdminToken chưa
+            const user = req.user || req.admin;
+            if (!user) {
+                return res.status(401).json({ success: false, message: 'Bạn chưa đăng nhập.' });
+            }
+
+            // Lấy role đầy đủ từ DB nếu user chỉ có payload token
+            let roleName = user.roleName;
+            if (!roleName) {
+                const fullUser = await prisma.user.findUnique({
+                    where: { id: user.id },
+                    include: { role: true }
+                });
+                roleName = fullUser?.role?.name;
+            }
+
+            if (!roles.includes(roleName)) {
+                return res.status(403).json({
+                    success: false,
+                    message: `Bạn không có quyền thực hiện hành động này. Yêu cầu: ${roles.join(' or ')}`
+                });
+            }
+
+            next();
+        } catch (error) {
+            console.error('[RESTRICT ERROR]', error);
+            res.status(500).json({ success: false, message: 'Lỗi kiểm tra quyền truy cập.' });
+        }
+    };
+};
+

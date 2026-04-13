@@ -129,6 +129,16 @@ export const updateStatus = async (req, res) => {
     const { isOnline } = req.body;
     logger.info({ driverId, isOnline }, '[BACKEND] Received updateStatus request');
 
+    const currentDriver = await prisma.driver.findUnique({ where: { id: parseInt(driverId) } });
+    if (!currentDriver) return res.status(404).json({ message: 'Không tìm thấy tài xế' });
+
+    if (isOnline && !currentDriver.hasPassedKnowledgeTest) {
+       return res.status(403).json({ 
+         error_code: 'TEST_REQUIRED',
+         message: 'Bạn chưa hoàn thành bài kiểm tra kiến thức bắt buộc.' 
+       });
+    }
+
     const driver = await prisma.driver.update({
       where: { id: parseInt(driverId) },
       data: { isOnline: !!isOnline },
@@ -173,6 +183,13 @@ export const verifyFace = async (req, res) => {
     
     if (!driver || !driver.avatarUrl) {
       return res.status(404).json({ message: 'Tài xế chưa có ảnh hồ sơ gốc để đối chiếu' });
+    }
+
+    if (!driver.hasPassedKnowledgeTest) {
+      return res.status(403).json({ 
+         error_code: 'TEST_REQUIRED',
+         message: 'Bạn chưa hoàn thành bài kiểm tra kiến thức bắt buộc.' 
+      });
     }
 
     try {

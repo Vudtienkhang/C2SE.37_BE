@@ -137,6 +137,12 @@ model Driver {
   tips            TripTip[]
   vehicles        DriverVehicle[]
   commissions     TripCommission[]
+  testHistories   DriverTestHistory[]
+  hasPassedKnowledgeTest Boolean @default(false)
+  isCertified     Boolean @default(false)
+  certifiedAt     DateTime?
+  moduleProgress  DriverModuleProgress[]
+  quizProgress    DriverQuizProgress[]
 }
 
 model DriverVehicle {
@@ -381,6 +387,7 @@ model Message {
   createdAt      DateTime     @default(now())
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender         User         @relation(fields: [senderId], references: [id])
+  isViolation    Boolean      @default(false)
 
   @@index([conversationId])
 }
@@ -579,6 +586,167 @@ enum PaymentStatus {
 enum DiscountType {
   percent
   fixed
+}
+
+// Ngân hàng câu hỏi gốc (Master Bank)
+model KnowledgeQuestion {
+  id                 Int      @id @default(autoincrement())
+  moduleId           Int?     
+  questionText       String
+  options            String[] 
+  correctAnswerIndex Int      
+  difficulty         String   @default("MEDIUM") 
+  isActive           Boolean  @default(true)
+  
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  module             KnowledgeModule? @relation(fields: [moduleId], references: [id], onDelete: SetNull)
+  quizzes            QuizQuestionAssignment[]
+}
+
+// Module đào tạo
+model KnowledgeModule {
+  id             Int              @id @default(autoincrement())
+  name           String
+  description    String?
+  orderIndex     Int              @default(0)
+  minScoreToPass Int              @default(80) // % để pass module này
+  questionCount  Int              @default(10) // Số lượng câu hỏi của đề thi module này
+  easyPercentage Int              @default(30) // % câu hỏi dễ
+  medPercentage  Int              @default(40) // % câu hỏi trung bình
+  hardPercentage Int              @default(30) // % câu hỏi khó
+  isMandatory    Boolean          @default(true) // Bắt buộc để tài xế được bật online
+  isActive       Boolean          @default(true)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  contents       ModuleContent[]
+  questions      KnowledgeQuestion[]
+  quizzes        KnowledgeQuiz[]
+  driverProgress DriverModuleProgress[]
+}
+
+// Bài thi trắc nghiệm trong Module
+model KnowledgeQuiz {
+  id             Int              @id @default(autoincrement())
+  moduleId       Int
+  name           String           @default("Bài kiểm tra")
+  description    String?
+  minScoreToPass Int              @default(80) 
+  questionCount  Int              @default(10) 
+  easyPercentage Int              @default(30) 
+  medPercentage  Int              @default(40) 
+  hardPercentage Int              @default(30) 
+  isMandatory    Boolean          @default(true) 
+  orderIndex     Int              @default(0)
+  isActive       Boolean          @default(true)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  module         KnowledgeModule  @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  questions      QuizQuestionAssignment[]
+  driverProgress DriverQuizProgress[]
+  testHistories  DriverTestHistory[] // NEW: Đối chiếu với quan hệ trong DriverTestHistory
+}
+
+// Bảng trung gian Nhiều-Nhiều giữa Quiz và Câu hỏi
+model QuizQuestionAssignment {
+  quizId     Int
+  questionId Int
+  createdAt  DateTime @default(now())
+
+  quiz       KnowledgeQuiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  question   KnowledgeQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@id([quizId, questionId])
+}
+
+// Tiến độ thi trắc nghiệm của tài xế
+model DriverQuizProgress {
+  id          Int           @id @default(autoincrement())
+  driverId    Int
+  quizId      Int
+  status      String        @default("IDLE") // IDLE, COMPLETED
+  score       Int?          @default(0)
+  completedAt DateTime?
+  updatedAt   DateTime      @updatedAt
+
+  driver      Driver        @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  quiz        KnowledgeQuiz @relation(fields: [quizId], references: [id], onDelete: Cascade)
+
+  @@unique([driverId, quizId])
+}
+
+// Nội dung bài giảng (Video/Tài liệu)
+model ModuleContent {
+  id          Int             @id @default(autoincrement())
+  moduleId    Int
+  title       String
+  description String?
+  type        String          @default("VIDEO") // VIDEO, DOCUMENT
+  contentUrl  String
+  orderIndex  Int             @default(0)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  module      KnowledgeModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+}
+
+// Tiến độ học tập của tài xế theo từng module
+model DriverModuleProgress {
+  id          Int             @id @default(autoincrement())
+  driverId    Int
+  moduleId    Int
+  status      String          @default("LOCKED") // LOCKED, LEARNING, COMPLETED
+  attempts    Int             @default(0)
+  bestScore   Int?            @default(0)
+  lastScore   Int?
+  completedAt DateTime?
+  updatedAt   DateTime        @updatedAt
+
+  driver      Driver          @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  module      KnowledgeModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([driverId, moduleId])
+}
+
+// Session quản lý Phiên (Session) & Lịch sử
+model DriverTestHistory {
+  id          Int      @id @default(autoincrement())
+  driverId    Int
+  quizId      Int?     // NEW: Liên kết với bài thi cụ thể
+  status      String   @default("in_progress") 
+  score       Int      @default(0)
+  totalScore  Int      @default(0)
+  
+  startedAt   DateTime @default(now())
+  completedAt DateTime?
+  expiresAt   DateTime 
+
+  driver      Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  quiz        KnowledgeQuiz? @relation(fields: [quizId], references: [id], onDelete: SetNull)
+  details     DriverTestDetail[]
+
+  @@index([driverId])
+  @@index([quizId])
+  @@index([status])
+  @@index([expiresAt])
+  @@index([startedAt])
+}
+
+// Backup & Snapshot cho Session chi tiết
+model DriverTestDetail {
+  id                 Int      @id @default(autoincrement())
+  testHistoryId      Int
+  questionId         Int?     
+  questionSnapshot   String   
+  optionsSnapshot    Json     
+  correctAnswerIndex Int      
+  selectedAnswerIndex Int?    
+  isCorrect          Boolean  @default(false)
+  
+  testHistory        DriverTestHistory @relation(fields: [testHistoryId], references: [id], onDelete: Cascade)
 }
 
 enum WalletTransactionType {
