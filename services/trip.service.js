@@ -33,9 +33,10 @@ export const fetchTripHistory = async (userId) => {
     },
     include: {
       customer: { include: { user: true } },
-      driver: { include: { user: true } },
+      driver: { include: { user: true, vehicles: true } },
       vehicle: true,
-      payments: true, // Bổ sung để hiện phương thức thanh toán
+      driverVehicle: true,
+      payments: true,
       review: true,
       conversation: {
         include: {
@@ -86,9 +87,10 @@ export const fetchCurrentTrip = async (userId) => {
     },
     include: {
       customer: { include: { user: true } },
-      driver: { include: { user: true } },
+      driver: { include: { user: true, vehicles: true } },
       vehicle: true,
-      payments: true, // Quan trọng để App biết là Ví hay Tiền mặt
+      driverVehicle: true,
+      payments: true,
       conversation: {
         include: {
           _count: {
@@ -111,8 +113,9 @@ export const fetchTripById = async (tripId) => {
     where: { id: parseInt(tripId) },
     include: {
       customer: { include: { user: true } },
-      driver: { include: { user: true } },
+      driver: { include: { user: true, vehicles: true } },
       vehicle: true,
+      driverVehicle: true,
       commissions: true,
       feeBreakdowns: true,
       payments: true,
@@ -157,10 +160,12 @@ export const verifyPublicTrip = async (tripId, token) => {
       customer: { select: { fullName: true, avatarUrl: true } },
       driver: { 
         include: { 
-          user: { select: { fullName: true, phone: true, avatarUrl: true } }
+          user: { select: { fullName: true, phone: true, avatarUrl: true } },
+          vehicles: true
         } 
       },
       vehicle: true,
+      driverVehicle: true,
     },
   });
 
