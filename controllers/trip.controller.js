@@ -5,12 +5,13 @@ export const getTripById = async (req, res) => {
     const { id } = req.params;
     const trip = await tripService.fetchTripById(id);
 
-    if (!trip) {
-      return res.status(404).json({ success: false, message: 'Không tìm thấy chuyến đi' });
+    if (trip) {
+      console.log(`[DEBUG TRIP] ID: ${id}, DriverVehicleID: ${trip.driverVehicleId}, HasDriverVehicle: ${!!trip.driverVehicle}, HasDriverVehiclesFallback: ${!!trip.driver?.vehicles?.length}`);
     }
 
     res.json({ success: true, data: trip });
   } catch (error) {
+    console.error(`[ERROR TRIP]`, error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

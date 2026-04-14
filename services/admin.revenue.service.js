@@ -45,22 +45,36 @@ export const getRevenueStats = async () => {
             where: { status: 'pending' },
             _sum: { amount: true }
         }),
-        // Hoa hồng (%)
+        // Hoa hồng (%) - Chỉ tính chuyến đã hoàn thành
         prisma.tripCommission.aggregate({
-            where: { createdAt: { gte: todayStart } },
+            where: { 
+                createdAt: { gte: todayStart },
+                trip: { status: 'completed' }
+            },
             _sum: { commissionAmount: true }
         }),
         prisma.tripCommission.aggregate({
-            where: { createdAt: { gte: monthStart } },
+            where: { 
+                createdAt: { gte: monthStart },
+                trip: { status: 'completed' }
+            },
             _sum: { commissionAmount: true }
         }),
-        // Phí hệ thống (Flat)
+        // Phí hệ thống (Flat) - Chỉ tính chuyến đã hoàn thành
         prisma.tripFeeBreakdown.aggregate({
-            where: { feeType: 'system_fee', createdAt: { gte: todayStart } },
+            where: { 
+                feeType: 'system_fee', 
+                createdAt: { gte: todayStart },
+                trip: { status: 'completed' }
+            },
             _sum: { amount: true }
         }),
         prisma.tripFeeBreakdown.aggregate({
-            where: { feeType: 'system_fee', createdAt: { gte: monthStart } },
+            where: { 
+                feeType: 'system_fee', 
+                createdAt: { gte: monthStart },
+                trip: { status: 'completed' }
+            },
             _sum: { amount: true }
         })
     ]);

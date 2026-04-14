@@ -7,7 +7,7 @@ import { tripTasksQueue } from '../lib/queue.js';
 import logger from '../lib/logger.js';
 
 export let io;
-const pendingTrips = new Map(); // requestId -> { data, driverIds, currentIndex, timeout, customerSocketId }
+const pendingTrips = new Map(); 
 
 export const initSocket = (server) => {
   io = new Server(server, {
@@ -785,10 +785,10 @@ export const initSocket = (server) => {
           }
         });
 
-        // 3. Chuẩn bị message để gửi đi (bao gồm cả tempId để App khớp dữ liệu)
+        // 3. Chuẩn bị message để gửi đi
         const message = { ...dbMessage, tempId };
 
-        // 4. Tìm người nhận để gửi thông báo hệ thống
+        // 5. Tìm người nhận để gửi thông báo hệ thống
         try {
           const trip = await prisma.trip.findUnique({
             where: { id: parseInt(tripId) },
