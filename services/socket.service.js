@@ -46,8 +46,18 @@ export const initSocket = (server) => {
         });
 
         if (!driver || driver.status !== 'approved') {
-          logger.warn({ driverId: id, status: driver?.status }, '[SOCKET] Driver registration rejected');
+          logger.warn({ driverId: id, status: driver?.status }, '[SOCKET] Driver registration rejected (Not approved)');
           socket.emit('driver:error', { message: 'Tài khoản của bạn chưa được duyệt hoặc bị khóa.' });
+          return;
+        }
+
+        // 1.1 KIỂM TRA CHỨNG CHỈ HỌC VIỆN (MỚI)
+        if (!driver.hasPassedKnowledgeTest) {
+          logger.warn({ driverId: id }, '[SOCKET] Driver registration rejected (No certification)');
+          socket.emit('driver:error', { 
+            code: 'NOT_CERTIFIED',
+            message: 'Bạn cần hoàn thành bài kiểm tra kiến thức tại Học viện để có thể bật ứng dụng nhận chuyến.' 
+          });
           return;
         }
 

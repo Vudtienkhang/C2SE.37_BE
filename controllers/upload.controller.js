@@ -151,3 +151,32 @@ export const uploadDriverAvatar = async (req, res) => {
     });
   }
 };
+
+export const uploadAcademyContent = async (req, res) => {
+  try {
+    const file = req.file;
+
+    if (!file) {
+      return res.status(400).json({ success: false, message: 'Không tìm thấy file tải lên.' });
+    }
+
+    const contentUrl = await uploadService.uploadAcademyContentToSupabase(
+      file.buffer, 
+      file.mimetype, 
+      file.originalname
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: 'Tải lên nội dung học viện thành công',
+      data: { contentUrl },
+    });
+  } catch (error) {
+    console.error('Lỗi uploadAcademyContent controller:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Lỗi khi tải nội dung lên máy chủ',
+    });
+  }
+};
+

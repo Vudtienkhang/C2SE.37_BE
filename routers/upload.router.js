@@ -1,9 +1,20 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { uploadAvatar, uploadDriverDocument, uploadChatImage, uploadWithdrawalProof, uploadDriverAvatar } from "../controllers/upload.controller.js";
+import { 
+  uploadAvatar, 
+  uploadDriverDocument, 
+  uploadChatImage, 
+  uploadWithdrawalProof, 
+  uploadDriverAvatar,
+  uploadAcademyContent
+} from "../controllers/upload.controller.js";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
+
+// Route POST /api/auth/upload/academy-content
+router.post('/academy-content', upload.single('file'), uploadAcademyContent);
+
 
 // Route POST /api/auth/upload/withdrawal-proof/:id
 router.post('/withdrawal-proof/:id', upload.single('proof'), uploadWithdrawalProof);

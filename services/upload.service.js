@@ -297,3 +297,38 @@ export const uploadVehicleImagesToSupabase = async (driverId, files) => {
 
   return Promise.all(uploadPromises);
 };
+
+/**
+ * Upload nội dung học viện (Video/Tài liệu) lên Supabase (Bucket: academy_contents)
+ * @param {Buffer} fileBuffer 
+ * @param {string} mimeType 
+ * @param {string} originalName 
+ * @returns {Promise<string>} - Public URL của nội dung
+ */
+export const uploadAcademyContentToSupabase = async (fileBuffer, mimeType, originalName) => {
+  // Xác định extension
+  let ext = originalName ? originalName.split('.').pop() : 'bin';
+  if (mimeType.includes('video/mp4')) ext = 'mp4';
+  if (mimeType.includes('application/pdf')) ext = 'pdf';
+
+  const fileName = `academy_${Date.now()}.${ext}`;
+  
+  const { error } = await supabase.storage
+    .from('academy_contents')
+    .upload(fileName, fileBuffer, {
+      contentType: mimeType,
+      upsert: true,
+    });
+
+  if (error) {
+    console.error('Lỗi upload Academy Content Supabase:', error);
+    throw new Error('Lỗi khi tải nội dung lên máy chủ (Bộ nhớ Cloud).');
+  }
+
+  const { data: publicUrlData } = supabase.storage
+    .from('academy_contents')
+    .getPublicUrl(fileName);
+
+  return publicUrlData.publicUrl;
+};
+
