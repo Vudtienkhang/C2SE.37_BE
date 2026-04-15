@@ -163,6 +163,11 @@ export const invalidateProfileCache = async (id) => {
 
 export const getUserById = async (id) => {
   const numericId = parseInt(id, 10);
+  
+  if (isNaN(numericId) || numericId <= 0) {
+    throw new Error('ID người dùng không hợp lệ.');
+  }
+
   const cacheKey = `user:profile:${numericId}`;
 
   // 1. Thử lấy từ Redis với cơ chế Timeout (3 giây) để tránh treo API

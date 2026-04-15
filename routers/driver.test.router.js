@@ -7,6 +7,7 @@ const router = express.Router();
 router.use(verifyToken);
 
 router.post('/start', driverTestController.startTest);
+router.get('/remaining/:sessionId', driverTestController.getRemainingQuestions);
 router.post('/submit', driverTestController.submitTest);
 
 export default router;

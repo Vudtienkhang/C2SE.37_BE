@@ -143,20 +143,14 @@ export const getUserProfile = async (req, res) => {
       data: user,
     });
   } catch (error) {
-    if (error.message === 'Người dùng không tồn tại.') {
-      return res.status(404).json({
-        success: false,
-        message: error.message,
-      });
-    }
-
-    console.error('Lỗi getUserProfile controller:', error);
-    return res.status(500).json({
+    console.error('[PROFILE_ERROR]', error);
+    return res.status(error.message === 'Người dùng không tồn tại.' || error.message === 'ID người dùng không hợp lệ.' ? 404 : 500).json({
       success: false,
-      message: error.message || 'Lỗi máy chủ nội bộ',
+      message: error.message || 'Lỗi lấy thông tin cá nhân',
     });
   }
-};
+  }
+
 
 export const updateProfile = async (req, res) => {
   try {

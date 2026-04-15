@@ -15,6 +15,8 @@ router.post('/questions/import', upload.single('file'), adminTestController.impo
 router.put('/questions/:id', adminTestController.updateQuestion);
 router.delete('/questions/:id', adminTestController.deleteQuestion);
 
+router.get('/history/summary', adminTestController.getTestHistorySummary);
+router.get('/history/driver/:driverId', adminTestController.getDriverAttempts);
 router.get('/history', adminTestController.getTestHistories);
 router.get('/history/:id', adminTestController.getTestHistoryDetail);
 

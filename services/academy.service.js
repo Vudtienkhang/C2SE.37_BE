@@ -102,14 +102,16 @@ const academyService = {
       where: { driverId }
     });
 
+    const moduleProgressMap = new Map(moduleProgress.map(p => [p.moduleId, p]));
+    const quizProgressMap = new Map(quizProgress.map(p => [p.quizId, p]));
+
     let previousCompleted = true; 
 
     return allModules.map((mod) => {
-      const modProg = moduleProgress.find(p => p.moduleId === mod.id);
+      const modProg = moduleProgressMap.get(mod.id);
       
-      // Tổng hợp trạng thái Module từ các bài Quiz con
       const quizzes = mod.quizzes.map(q => {
-        const qProg = quizProgress.find(qp => qp.quizId === q.id);
+        const qProg = quizProgressMap.get(q.id);
         const isReady = (q._count?.questions || 0) >= q.questionCount;
         
         return {
@@ -143,6 +145,42 @@ const academyService = {
       
       return result;
     });
+
+    // --- TỰ ĐỘNG CẬP NHẬT CHỨNG CHỈ (SELF-HEALING) ---
+    // Chỉ xử lý nếu có ít nhất 1 module trong hệ thống
+    if (results.length > 0) {
+        // Lọc ra các module bắt buộc
+        const mandatoryModules = results.filter(m => m.isMandatory);
+        
+        // Nếu không có module nào được đánh dấu bắt buộc, ta coi như tất cả đều bắt buộc 
+        // hoặc đơn giản là kiểm tra xem có module nào hoàn thành chưa.
+        // Ở đây để an toàn, nếu có module bắt buộc thì phải xong hết, 
+        // nếu không có cái nào bắt buộc thì ta dùng danh sách gốc.
+        const targetModules = mandatoryModules.length > 0 ? mandatoryModules : results;
+
+        const allFinished = targetModules.every(m => m.isCompleted);
+
+        if (allFinished) {
+            const driver = await prisma.driver.findUnique({ 
+                where: { id: driverId },
+                select: { isCertified: true }
+            });
+
+            if (driver && !driver.isCertified) {
+                console.log(`[ACADEMY] >>> Auto-certifying driver ${driverId} (100% progress detected)`);
+                await prisma.driver.update({
+                    where: { id: driverId },
+                    data: { 
+                        isCertified: true, 
+                        certifiedAt: new Date(),
+                        hasPassedKnowledgeTest: true 
+                    }
+                });
+            }
+        }
+    }
+
+    return results;
   },
 
   /**
