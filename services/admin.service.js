@@ -433,8 +433,11 @@ export const getAllTrips = async () => {
  * @param {number} tripId 
  */
 export const getTripDetailAdmin = async (tripId) => {
+    const id = parseInt(tripId);
+    if (isNaN(id)) return null;
+
     return await prisma.trip.findUnique({
-        where: { id: parseInt(tripId) },
+        where: { id },
         include: {
             customer: {
                 include: { 

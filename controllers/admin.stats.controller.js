@@ -5,7 +5,8 @@ import * as adminStatsService from '../services/admin.stats.service.js';
  */
 export const getComprehensiveStatsController = async (req, res) => {
     try {
-        const stats = await adminStatsService.getComprehensiveStats();
+        const { period, startDate, endDate } = req.query;
+        const stats = await adminStatsService.getComprehensiveStats(period, startDate, endDate);
         
         return res.status(200).json({
             success: true,
