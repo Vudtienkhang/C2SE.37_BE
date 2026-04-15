@@ -3,11 +3,16 @@ import XLSX from 'xlsx';
 const prisma = new PrismaClient();
 
 const adminTestService = {
-  getQuestions: async (page = 1, limit = 20, search = '') => {
+  getQuestions: async (page = 1, limit = 20, search = '', filters = {}) => {
     const skip = (page - 1) * limit;
     const where = {};
     if (search) {
       where.questionText = { contains: search, mode: 'insensitive' };
+    }
+    if (filters.moduleId) {
+      where.moduleAssignments = {
+        some: { moduleId: parseInt(filters.moduleId) }
+      };
     }
 
     const [total, questions] = await Promise.all([
@@ -54,6 +59,88 @@ const adminTestService = {
     return await prisma.knowledgeQuestion.update({
       where: { id: parseInt(id) },
       data: { isActive: false }
+    });
+  },
+
+  getModuleById: async (moduleId) => {
+    return await prisma.knowledgeModule.findUnique({
+      where: { id: parseInt(moduleId) },
+      select: {
+          id: true,
+          name: true,
+          description: true,
+          contents: {
+              select: { title: true, type: true }
+          }
+      }
+    });
+  },
+
+  getExampleQuestions: async (moduleId, limit = 5) => {
+    // 1. Lấy câu hỏi cùng module trước
+    let questions = await prisma.knowledgeQuestion.findMany({
+      where: { moduleId: parseInt(moduleId), isActive: true },
+      take: limit,
+      select: {
+          questionText: true,
+          options: true,
+          correctAnswerIndex: true,
+          difficulty: true
+      }
+    });
+
+    // 2. Nếu không đủ, lấy thêm ngẫu nhiên từ kho chung
+    if (questions.length < limit) {
+        const extra = await prisma.knowledgeQuestion.findMany({
+            where: { isActive: true },
+            take: limit - questions.length,
+            select: {
+                questionText: true,
+                options: true,
+                correctAnswerIndex: true,
+                difficulty: true
+            }
+        });
+        questions = [...questions, ...extra];
+    }
+
+    return questions;
+  },
+
+  bulkCreateQuestions: async (questionsData) => {
+    // Validate each question quickly here or in controller
+    if (!Array.isArray(questionsData) || questionsData.length === 0) return { count: 0 };
+    const createData = questionsData.map(q => ({
+      questionText: q.questionText,
+      options: q.options,
+      correctAnswerIndex: parseInt(q.correctAnswerIndex),
+      difficulty: q.difficulty || "MEDIUM",
+      moduleId: q.moduleId ? parseInt(q.moduleId) : null, // Original owner
+      isActive: true,
+      moduleAssignments: q.moduleId ? {
+        create: { moduleId: parseInt(q.moduleId) }
+      } : undefined
+    }));
+
+    // createMany doesn't support nested creates, so we need a transaction or individual creates
+    // For AI generation (usually 5-10 questions), individual creates are fine.
+    const results = await prisma.$transaction(
+        createData.map(data => prisma.knowledgeQuestion.create({ data }))
+    );
+
+    return { count: results.length };
+  },
+
+  assignQuestionsToModule: async (moduleId, questionIds) => {
+    const mId = parseInt(moduleId);
+    const assignments = questionIds.map(id => ({
+      moduleId: mId,
+      questionId: parseInt(id)
+    }));
+
+    return await prisma.moduleQuestionAssignment.createMany({
+      data: assignments,
+      skipDuplicates: true
     });
   },
 
@@ -230,8 +317,16 @@ const adminTestService = {
     return await prisma.knowledgeQuiz.update({
       where: { id: parseInt(id) },
       data: {
-        ...data,
-        id: undefined
+        name: data.name,
+        description: data.description,
+        questionCount: data.questionCount !== undefined ? Number(data.questionCount) : undefined,
+        minScoreToPass: data.minScoreToPass !== undefined ? Number(data.minScoreToPass) : undefined,
+        easyPercentage: data.easyPercentage !== undefined ? Number(data.easyPercentage) : undefined,
+        medPercentage: data.medPercentage !== undefined ? Number(data.medPercentage) : undefined,
+        hardPercentage: data.hardPercentage !== undefined ? Number(data.hardPercentage) : undefined,
+        isMandatory: data.isMandatory !== undefined ? Boolean(data.isMandatory) : undefined,
+        orderIndex: data.orderIndex !== undefined ? Number(data.orderIndex) : undefined,
+        isActive: data.isActive !== undefined ? Boolean(data.isActive) : undefined,
       }
     });
   },
@@ -279,7 +374,10 @@ const adminTestService = {
       where: { 
         isActive: true,
         id: { notIn: existingIds },
-        difficulty: filters.difficulty || undefined
+        difficulty: filters.difficulty || undefined,
+        moduleAssignments: {
+            some: { moduleId: quiz.moduleId }
+        }
       }
     });
 

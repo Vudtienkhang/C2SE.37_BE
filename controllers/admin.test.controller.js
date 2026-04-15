@@ -1,4 +1,5 @@
 import adminTestService from '../services/admin.test.service.js';
+import aiService from '../services/ai.service.js';
 import XLSX from 'xlsx';
 import { PrismaClient } from '@prisma/client';
 
@@ -8,8 +9,9 @@ const adminTestController = {
       const page = parseInt(req.query.page) || 1;
       const limit = parseInt(req.query.limit) || 20;
       const search = req.query.search || '';
+      const moduleId = req.query.moduleId;
       
-      const data = await adminTestService.getQuestions(page, limit, search);
+      const data = await adminTestService.getQuestions(page, limit, search, { moduleId });
       res.status(200).json({ data });
     } catch (error) {
       res.status(500).json({ error: error.message });
@@ -43,6 +45,57 @@ const adminTestController = {
     try {
       await adminTestService.deleteQuestion(req.params.id);
       res.status(200).json({ message: 'Vô hiệu hóa câu hỏi thành công' });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  },
+
+  generateQuestionsFromAI: async (req, res) => {
+    try {
+      const { moduleId } = req.params;
+      const { easyCount = 0, mediumCount = 0, hardCount = 0 } = req.body;
+      
+      const moduleData = await adminTestService.getModuleById(moduleId);
+      if (!moduleData) {
+        return res.status(404).json({ error: 'Không tìm thấy chủ đề (Module)' });
+      }
+
+      // Lấy câu hỏi mẫu để AI học (Few-shot prompting)
+      const examples = await adminTestService.getExampleQuestions(moduleId, 5);
+
+      const generatedQuestions = await aiService.generateQuestions(
+        moduleData, 
+        { 
+          easyCount: parseInt(easyCount), 
+          mediumCount: parseInt(mediumCount), 
+          hardCount: parseInt(hardCount) 
+        },
+        examples
+      );
+
+      res.status(200).json({ data: generatedQuestions });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  },
+
+  bulkSaveQuestions: async (req, res) => {
+    try {
+      const { moduleId } = req.params;
+      const { questions } = req.body;
+
+      if (!Array.isArray(questions) || questions.length === 0) {
+        return res.status(400).json({ error: 'Danh sách câu hỏi trống hoặc không hợp lệ' });
+      }
+
+      // Add moduleId to every question if not already present
+      const questionsToSave = questions.map(q => ({
+        ...q,
+        moduleId: q.moduleId || moduleId
+      }));
+
+      const result = await adminTestService.bulkCreateQuestions(questionsToSave);
+      res.status(201).json({ message: `Đã lưu thành công ${result.count} câu hỏi`, data: result });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
@@ -203,6 +256,17 @@ const adminTestController = {
     try {
       const data = await adminTestService.getQuestionsByQuiz(req.params.id);
       res.status(200).json({ data });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  },
+
+  assignQuestionsToModule: async (req, res) => {
+    try {
+      const { moduleId } = req.params;
+      const { questionIds } = req.body;
+      const result = await adminTestService.assignQuestionsToModule(moduleId, questionIds);
+      res.status(200).json({ data: result });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
