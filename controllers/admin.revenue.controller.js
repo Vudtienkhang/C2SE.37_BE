@@ -2,7 +2,8 @@ import * as revenueService from '../services/admin.revenue.service.js';
 
 export const getRevenueStats = async (req, res) => {
     try {
-        const data = await revenueService.getRevenueStats();
+        const { period, startDate, endDate } = req.query;
+        const data = await revenueService.getRevenueStats(period, startDate, endDate);
         return res.status(200).json({
             success: true,
             data
