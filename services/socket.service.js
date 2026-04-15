@@ -75,6 +75,11 @@ export const initSocket = (server) => {
           data: { isOnline: true },
         }).catch(err => logger.error(err, 'Error updating driver status'));
 
+        // 2. GHI NHẬN PHIÊN ONLINE MỚI
+        await prisma.onlineSession.create({
+          data: { driverId: actualDriverId, startTime: new Date() }
+        }).catch(err => logger.warn('[SOCKET] Failed to create online session:', err.message));
+
         // 3. KHÔI PHỤC VỊ TRÍ TỨC THÌ
         if (lat && lng) {
           // 3.1 Ưu tiên tọa độ mới nhất App gửi lên
@@ -159,6 +164,16 @@ export const initSocket = (server) => {
       pending.currentIndex++;
       pendingTrips.set(requestId, pending);
 
+      // --- KIỂM TRA KHÓA "ĐANG CÂN NHẮC" (CHỐNG CHỒNG CHÉO) ---
+      const isLocked = await redis.get(`driver:${driverId}:lock`);
+      if (isLocked) {
+        logger.info({ driverId, requestId }, '[TRIP] Driver is considering another trip. Skipping...');
+        return notifyNextDriver(requestId);
+      }
+
+      // Khóa tài xế này trong 12 giây (10s chờ + 2s trừ hao)
+      await redis.set(`driver:${driverId}:lock`, requestId, 'EX', 12);
+
       // --- KIỂM TRA NỢ XẤU TÀI XẾ (BẢO VỆ ADMIN) ---
       try {
         // Lấy đúng userId của tài xế để kiểm tra ví (Bug fix: driverId ở đây là Driver.id)
@@ -184,6 +199,16 @@ export const initSocket = (server) => {
 
       logger.info({ driverId, requestId }, '[TRIP] Notifying driver for request');
 
+      // 1.5 GHI NHẬN CƠ HỘI NHẬN CHUYẾN (TRIP OFFER)
+      await prisma.tripOffer.create({
+        data: {
+          requestId,
+          driverId,
+          status: 'PENDING',
+          offeredAt: new Date()
+        }
+      }).catch(err => logger.error('[TRIP OFFER ERROR] Failed to create:', err.message));
+
       // 2. Gửi yêu cầu tới tài xế
       io.to(`driver_${driverId}`).emit('trip:new_request', {
         requestId,
@@ -191,10 +216,28 @@ export const initSocket = (server) => {
       });
 
       // 3. Đặt timeout 10 giây
-      pending.timeout = setTimeout(() => {
+      pending.timeout = setTimeout(async () => {
         logger.info({ driverId, requestId }, '[TRIP] Driver timed out for request');
+        
+        // Cập nhật trạng thái MISSED nếu tài xế không phản hồi
+        await prisma.tripOffer.updateMany({
+          where: { requestId, driverId, status: 'PENDING' },
+          data: { status: 'MISSED', respondedAt: new Date() }
+        }).catch(() => {});
+
         notifyNextDriver(requestId);
       }, 10000); 
+    };
+
+    const calculateHaversine = (lat1, lon1, lat2, lon2) => {
+      const R = 6371; // Bán kính trái đất (km)
+      const dLat = (lat2 - lat1) * (Math.PI / 180);
+      const dLon = (lon2 - lon1) * (Math.PI / 180);
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * 
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
     };
 
     socket.on('trip:request', async (data) => {
@@ -219,14 +262,24 @@ export const initSocket = (server) => {
           logger.info({ passengerId }, '[TRIP] Client sent empty driver list. Performing server-side auto-scan...');
           const searchRadii = [5, 10, 15];
           for (const r of searchRadii) {
+            // Lấy cả member (ID) và distance từ Redis
             const nearby = await redis.geosearch(
               'drivers:locations',
               'FROMLONLAT', pickupLng, pickupLat,
               'BYRADIUS', r, 'km',
-              'ASC'
+              'ASC',
+              'WITHDIST'
             );
+            
             if (nearby && nearby.length > 0) {
-              finalizedDriverIds = nearby.map(item => parseInt(item));
+              // nearby lúc này có dạng: [[driverId, distance], [driverId, distance], ...]
+              const driverDistancesMap = new Map();
+              finalizedDriverIds = nearby.map(item => {
+                const dId = parseInt(item[0]);
+                driverDistancesMap.set(dId, parseFloat(item[1]));
+                return dId;
+              });
+              socket.driverDistancesMap = driverDistancesMap; // Lưu tạm để dùng cho bước sort sau
               logger.info({ radius: r, count: finalizedDriverIds.length }, '[TRIP] Server-side scan found drivers');
               break;
             }
@@ -254,7 +307,7 @@ export const initSocket = (server) => {
           DIAMOND: 1.5
         });
 
-        // 3.2. Lấy thông tin tài xế để tính khoảng cách hiệu dụng
+        // 3.2. Lấy thông tin tài xế để tính khoảng cách hiệu dụng (Tối ưu select)
         const driversData = await prisma.driver.findMany({
           where: { 
             id: { in: finalizedDriverIds },
@@ -270,9 +323,18 @@ export const initSocket = (server) => {
               }
             } : {})
           },
-          include: { 
-            user: { select: { fullName: true, phone: true, wallet: { select: { balance: true } } } },
-            DriverRank: true
+          select: { 
+            id: true,
+            user: { 
+              select: { 
+                fullName: true, 
+                phone: true, 
+                wallet: { select: { balance: true } } 
+              } 
+            },
+            DriverRank: {
+              select: { code: true }
+            }
           }
         });
 
@@ -280,42 +342,47 @@ export const initSocket = (server) => {
         const filteredDriversData = driversData.filter(d => (d.user?.wallet?.balance || 0) > DRIVER_DEBT_LIMIT);
 
         // 3.3. Tính toán và sắp xếp lại driverIds dựa trên công thức: EffectiveDistance = ActualDistance / Multiplier
-        const sortedDrivers = await Promise.all(finalizedDriverIds.map(async (dId) => {
-          const driver = filteredDriversData.find(d => d.id === dId);
-          if (!driver) return null;
+        const driverDistancesMap = socket.driverDistancesMap || new Map();
+        
+        // Nếu App tự gửi danh sách driverIds lên, driverDistancesMap sẽ trống
+        // Ta cần lấy tọa độ của toàn bộ tài xế bằng 1 lệnh GEOPOS duy nhất (TỐI ƯU NHẤT)
+        if (driverDistancesMap.size === 0 && finalizedDriverIds.length > 0) {
+          const positions = await redis.geopos('drivers:locations', ...finalizedDriverIds);
+          // positions có dạng [[lng, lat], [lng, lat], ...] hoặc [null, ...]
+          finalizedDriverIds.forEach((id, index) => {
+            const pos = positions[index];
+            if (pos) {
+              const dist = calculateHaversine(
+                parseFloat(pickupLat), 
+                parseFloat(pickupLng), 
+                parseFloat(pos[1]), 
+                parseFloat(pos[0])
+              );
+              driverDistancesMap.set(id, dist);
+            } else {
+              driverDistancesMap.set(id, 999); // Không thấy vị trí
+            }
+          });
+        }
 
-          // Lấy vị trí thực tế của tài xế từ Redis
-          const locStr = await redis.get(`driver:${dId}:last_location`);
-          let actualDist = 999; // Mặc định rất xa nếu không tìm thấy vị trí
-          
-          if (locStr) {
-            const loc = JSON.parse(locStr);
-            // Hàm tính Haversine cơ bản
-            const calculateHaversine = (lat1, lon1, lat2, lon2) => {
-              const R = 6371;
-              const dLat = (lat2 - lat1) * (Math.PI / 180);
-              const dLon = (lon2 - lon1) * (Math.PI / 180);
-              const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                        Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * 
-                        Math.sin(dLon / 2) * Math.sin(dLon / 2);
-              const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-              return R * c;
+        const sortedDrivers = finalizedDriverIds
+          .map((dId) => {
+            const driver = filteredDriversData.find(d => d.id === dId);
+            if (!driver) return null;
+
+            const actualDist = driverDistancesMap.get(dId) || 999;
+            const multiplier = rankPriorities[driver.DriverRank?.code] || 1.0;
+
+            return {
+              id: dId,
+              effectiveDistance: actualDist / multiplier
             };
-            actualDist = calculateHaversine(parseFloat(pickupLat), parseFloat(pickupLng), loc.lat, loc.lng);
-          }
-
-          const multiplier = rankPriorities[driver.DriverRank?.code] || 1.0;
-          return {
-            id: dId,
-            effectiveDistance: actualDist / multiplier
-          };
-        }));
-
-        // Lọc bỏ null và sắp xếp theo khoảng cách hiệu dụng tăng dần
-        finalizedDriverIds = sortedDrivers
+          })
           .filter(d => d !== null)
           .sort((a, b) => a.effectiveDistance - b.effectiveDistance)
           .map(d => d.id);
+
+        finalizedDriverIds = sortedDrivers;
 
         logger.info({ 
           originalCount: rawDriverIds?.length || 0, 
@@ -384,12 +451,25 @@ export const initSocket = (server) => {
     });
 
 
-    socket.on('trip:decline', (data) => {
+    socket.on('trip:decline', async (data) => {
       const { requestId } = data;
       const pending = pendingTrips.get(requestId);
       if (pending) {
         logger.info({ requestId }, '[TRIP] Driver declined request. Moving to next...');
+        
+        // Cập nhật trạng thái REJECTED cho tài xế vừa từ chối
+        if (socket.driverId) {
+          await prisma.tripOffer.updateMany({
+            where: { requestId, driverId: socket.driverId, status: 'PENDING' },
+            data: { status: 'REJECTED', respondedAt: new Date() }
+          }).catch(() => {});
+        }
+
         clearTimeout(pending.timeout);
+        // Giải phóng khóa khi tài xế chủ động từ chối
+        if (socket.driverId) {
+          await redis.del(`driver:${socket.driverId}:lock`);
+        }
         notifyNextDriver(requestId);
       }
     });
@@ -397,6 +477,9 @@ export const initSocket = (server) => {
     socket.on('trip:accept', async (data) => {
       try {
         const { requestId, driverId } = data;
+        
+        // Giải phóng khóa khi tài xế chấp nhận
+        await redis.del(`driver:${driverId}:lock`);
         
         // --- 1. GIẢI QUYẾT RACE CONDITION (CRITICAL) ---
         // Lấy và xóa ngay lập tức khỏi Map để ngăn chặn driver khác nhận cùng lúc
@@ -410,6 +493,15 @@ export const initSocket = (server) => {
         // --- KHÓA YÊU CẦU NGAY LẬP TỨC TRƯỚC BẤT KỲ AWAIT NÀO ---
         pendingTrips.delete(requestId);
         clearTimeout(pending.timeout);
+
+        // Cập nhật trạng thái ACCEPTED cho tài xế này
+        await prisma.tripOffer.updateMany({
+          where: { requestId, driverId: parseInt(driverId) },
+          data: { status: 'ACCEPTED', respondedAt: new Date() }
+        }).catch(() => {});
+        
+        // Cập nhật trạng thái MISSED cho các tài xế khác (nếu có trong list đang chờ của requestId này)
+        // Lưu ý: Logic đơn giản có thể chỉ cần đánh dấu bản ghi của driverId này
 
         // --- 2. XÁC THỰC VÍ KHÁCH HÀNG (TRƯỚC KHI TẠO TRIP) ---
         const discountAmount = pending.data.discountAmount || 0;
@@ -477,7 +569,13 @@ export const initSocket = (server) => {
             include: {
               driver: { 
                 include: { 
-                  user: true,
+                  user: {
+                    select: {
+                      fullName: true,
+                      phone: true,
+                      avatarUrl: true
+                    }
+                  },
                   vehicles: { where: { isDefault: true } } // Lấy xe mặc định của tài xế
                 } 
               }
@@ -890,6 +988,12 @@ export const initSocket = (server) => {
             
             // 3. Xóa cache vị trí cuối
             await redis.del(`driver:${driverId}:last_location`);
+
+            // 4. Đóng phiên online
+            await prisma.onlineSession.updateMany({
+              where: { driverId: driverId, endTime: null },
+              data: { endTime: new Date() }
+            }).catch(err => logger.error('[SOCKET] Error ending online session:', err.message));
           }
         } catch (e) {
           logger.error(e, "[SOCKET] Error during driver cleanup");

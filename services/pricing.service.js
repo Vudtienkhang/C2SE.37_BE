@@ -89,25 +89,25 @@ export const calculateTripPrice = async ({
      }
   }
 
-  // 5. Calculate Base Fare
+  // 5. Calculate Trip Price Components
   const distanceFare = distanceKm * config.perKmPrice;
-  const timeFare = 0; // Removing per minute cost as requested
-  const baseFare = config.baseFare + distanceFare + timeFare;
+  const timeFare = 0; // Per minute cost is currently disabled
+  const subTotal = distanceFare + timeFare;
 
-  // 6. Calculate Surcharges (Multipliers on BaseFare)
+  // 6. Calculate Surcharges (Multipliers on subTotal)
   let nightSurcharge = 0;
   if (isNight) {
-    nightSurcharge = baseFare * (config.nightMultiplier - 1);
+    nightSurcharge = subTotal * (config.nightMultiplier - 1);
   }
 
   let rushHourSurcharge = 0;
   if (isRushHour) {
-    rushHourSurcharge = baseFare * (config.rushHourMultiplier - 1);
+    rushHourSurcharge = subTotal * (config.rushHourMultiplier - 1);
   }
 
   let holidaySurcharge = 0;
   if (activeHoliday) {
-    holidaySurcharge = baseFare * (config.holidayMultiplier - 1);
+    holidaySurcharge = subTotal * (config.holidayMultiplier - 1);
   }
 
   const surchargeTotal = nightSurcharge + rushHourSurcharge + holidaySurcharge + weatherFee;
@@ -116,10 +116,10 @@ export const calculateTripPrice = async ({
   const systemFee = config.systemFee;
 
   // 8. Total Price
-  const totalPrice = baseFare + surchargeTotal + systemFee;
+  const totalPrice = subTotal + surchargeTotal + systemFee;
 
   return {
-    baseFare: Math.round(baseFare),
+    baseFare: Math.round(subTotal),
     surchargeBreakdown: {
       night: Math.round(nightSurcharge),
       rushHour: Math.round(rushHourSurcharge),
