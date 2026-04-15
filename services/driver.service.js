@@ -31,15 +31,17 @@ export const getDriverEarningsStats = async (userId) => {
   const dailyTrips = await prisma.trip.findMany({
     where: {
       driverId: driver.id,
-      status: 'completed',
       createdAt: { gte: todayStart, lte: todayEnd }
     },
     include: { commissions: true }
   });
 
+  const completedToday = dailyTrips.filter(t => t.status === 'completed');
+  const cancelledToday = dailyTrips.filter(t => t.status === 'cancelled');
+
   const defaultRate = driver.DriverRank?.platformRate ?? 20;
 
-  const dailyIncome = dailyTrips.reduce((acc, trip) => {
+  const dailyIncome = completedToday.reduce((acc, trip) => {
     const commission = trip.commissions[0]?.commissionAmount ?? ( (trip.priceEstimate || trip.finalPrice || 0) * (defaultRate / 100) );
     const originalPrice = trip.priceEstimate || trip.finalPrice || 0;
     return acc + (originalPrice - commission);
@@ -104,14 +106,73 @@ export const getDriverEarningsStats = async (userId) => {
     };
   });
 
+  // 1.5 Tính toán Online Time thực tế (Hôm nay)
+  const onlineSessions = await prisma.onlineSession.findMany({
+    where: {
+      driverId: driver.id,
+      startTime: { gte: todayStart, lte: todayEnd }
+    }
+  });
+
+  let totalOnlineMs = 0;
+  onlineSessions.forEach(session => {
+    const end = session.endTime ? new Date(session.endTime) : new Date();
+    const start = new Date(session.startTime);
+    totalOnlineMs += end.getTime() - start.getTime();
+  });
+
+  const hours = Math.floor(totalOnlineMs / (1000 * 60 * 60));
+  const minutes = Math.floor((totalOnlineMs % (1000 * 60 * 60)) / (1000 * 60));
+  const onlineTimeStr = `${hours}h ${minutes}m`;
+
+  // 1.6 Tính toán Acceptance Rate thực tế (Hôm nay)
+  const todayOffers = await prisma.tripOffer.count({
+    where: {
+      driverId: driver.id,
+      offeredAt: { gte: todayStart, lte: todayEnd }
+    }
+  });
+
+  const todayAccepted = await prisma.tripOffer.count({
+    where: {
+      driverId: driver.id,
+      status: 'ACCEPTED',
+      offeredAt: { gte: todayStart, lte: todayEnd }
+    }
+  });
+
+  const acceptanceRateVal = todayOffers > 0 
+    ? Math.round((todayAccepted / todayOffers) * 100) 
+    : 100;
+
+  // 1.7 Tính toán Hiệu suất thực tế (Toàn thời gian)
+  const totalCompleted = await prisma.trip.count({
+    where: {
+      driverId: driver.id,
+      status: 'completed'
+    }
+  });
+
+  const totalCancelled = await prisma.trip.count({
+    where: {
+      driverId: driver.id,
+      status: 'cancelled'
+    }
+  });
+
+  const performanceRate = (totalCompleted + totalCancelled) > 0
+    ? Math.round((totalCompleted / (totalCompleted + totalCancelled)) * 100)
+    : 100;
+
   return {
     success: true,
     data: {
       today: {
         income: dailyIncome,
-        tripCount: dailyTrips.length,
-        onlineTime: "5h 30m", // Placeholder, logic tracking session có thể bổ sung sau
-        acceptanceRate: "98%" // Placeholder
+        tripCount: completedToday.length,
+        onlineTime: onlineTimeStr, 
+        acceptanceRate: `${acceptanceRateVal}%`,
+        performanceRate: `${performanceRate}%`
       },
       weeklyIncome,
       walletBalance: driver.user.wallet?.balance || 0,

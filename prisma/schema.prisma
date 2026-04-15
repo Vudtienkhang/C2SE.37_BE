@@ -145,6 +145,8 @@ model Driver {
   commissions            TripCommission[]
   TripOffer              TripOffer[]
   tips                   TripTip[]
+  onlineSessions         OnlineSession[]
+  tripOffers             TripOffer[]
 }
 
 model DriverVehicle {
@@ -795,6 +797,29 @@ enum SOSStatus {
 enum ServiceType {
   FOR_HIRE
   RIDE_HAILING
+}
+
+model OnlineSession {
+  id        Int      @id @default(autoincrement())
+  driverId  Int
+  startTime DateTime @default(now())
+  endTime   DateTime?
+  driver    Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@index([driverId])
+}
+
+model TripOffer {
+  id          Int             @id @default(autoincrement())
+  requestId   String          // ID yêu cầu từ socket
+  driverId    Int
+  status      TripOfferStatus @default(PENDING)
+  offeredAt   DateTime        @default(now())
+  respondedAt DateTime?
+  driver      Driver          @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@index([driverId])
+  @@index([requestId])
 }
 
 enum TripOfferStatus {
