@@ -21,7 +21,10 @@ router.get('/history', adminTestController.getTestHistories);
 router.get('/history/:id', adminTestController.getTestHistoryDetail);
 
 // QUẢN LÝ QUIZ TRONG MODULE
+router.post('/modules/:moduleId/generate-ai-questions', adminTestController.generateQuestionsFromAI);
+router.post('/modules/:moduleId/questions/bulk', adminTestController.bulkSaveQuestions);
 router.get('/modules/:moduleId/quizzes', adminTestController.getQuizzesByModule);
+router.post('/modules/:moduleId/questions/assign', adminTestController.assignQuestionsToModule);
 router.post('/quizzes', adminTestController.createQuiz);
 router.put('/quizzes/:id', adminTestController.updateQuiz);
 router.delete('/quizzes/:id', adminTestController.deleteQuiz);

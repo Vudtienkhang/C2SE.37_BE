@@ -14,7 +14,12 @@ const academyService = {
             _count: { select: { questions: true } }
           }
         },
-        _count: { select: { contents: true } } 
+        _count: { 
+          select: { 
+            contents: true,
+            moduleQuestions: true
+          } 
+        } 
       }
     });
   },

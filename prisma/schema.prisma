@@ -139,9 +139,11 @@ model Driver {
   quizProgress           DriverQuizProgress[]
   testHistories          DriverTestHistory[]
   vehicles               DriverVehicle[]
+  OnlineSession          OnlineSession[]
   reviews                Review[]
   trips                  Trip[]
   commissions            TripCommission[]
+  TripOffer              TripOffer[]
   tips                   TripTip[]
 }
 
@@ -478,7 +480,6 @@ model PricingConfig {
   rushHour2Start     String      @default("16:30")
   systemFee          Float       @default(2000)
   serviceType        ServiceType @default(FOR_HIRE)
-  baseFare           Float       @default(0)
 }
 
 model HolidayConfig {
@@ -566,6 +567,7 @@ model KnowledgeQuestion {
   updatedAt          DateTime                 @updatedAt
   module             KnowledgeModule?         @relation(fields: [moduleId], references: [id])
   quizzes            QuizQuestionAssignment[]
+  moduleAssignments  ModuleQuestionAssignment[]
 }
 
 model KnowledgeModule {
@@ -584,8 +586,19 @@ model KnowledgeModule {
   isMandatory    Boolean                @default(true)
   driverProgress DriverModuleProgress[]
   questions      KnowledgeQuestion[]
+  moduleQuestions ModuleQuestionAssignment[]
   quizzes        KnowledgeQuiz[]
   contents       ModuleContent[]
+}
+
+model ModuleQuestionAssignment {
+  moduleId   Int
+  questionId Int
+  createdAt  DateTime          @default(now())
+  module     KnowledgeModule   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  question   KnowledgeQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@id([moduleId, questionId])
 }
 
 model KnowledgeQuiz {
@@ -695,6 +708,29 @@ model DriverTestDetail {
   testHistory         DriverTestHistory @relation(fields: [testHistoryId], references: [id], onDelete: Cascade)
 }
 
+model OnlineSession {
+  id        Int       @id @default(autoincrement())
+  driverId  Int
+  startTime DateTime  @default(now())
+  endTime   DateTime?
+  Driver    Driver    @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@index([driverId])
+}
+
+model TripOffer {
+  id          Int             @id @default(autoincrement())
+  requestId   String
+  driverId    Int
+  status      TripOfferStatus @default(PENDING)
+  offeredAt   DateTime        @default(now())
+  respondedAt DateTime?
+  Driver      Driver          @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@index([driverId])
+  @@index([requestId])
+}
+
 enum UserStatus {
   active
   banned
@@ -759,4 +795,11 @@ enum SOSStatus {
 enum ServiceType {
   FOR_HIRE
   RIDE_HAILING
+}
+
+enum TripOfferStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  MISSED
 }

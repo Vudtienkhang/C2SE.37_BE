@@ -16,6 +16,7 @@
   "license": "ISC",
   "dependencies": {
     "@aws-sdk/client-rekognition": "^3.1020.0",
+    "@google/generative-ai": "^0.24.1",
     "@mapbox/polyline": "^1.2.1",
     "@prisma/client": "^6.12.0",
     "@supabase/supabase-js": "^2.99.1",
