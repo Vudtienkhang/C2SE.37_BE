@@ -51,12 +51,16 @@ export const initSocket = (server) => {
           return;
         }
 
-        // 1.1 KIỂM TRA CHỨNG CHỈ HỌC VIỆN (MỚI)
-        if (!driver.hasPassedKnowledgeTest) {
-          logger.warn({ driverId: id }, '[SOCKET] Driver registration rejected (No certification)');
+        // 1.1 KIỂM TRA CHỨNG CHỈ HỌC VIỆN (Linh hoạt theo yêu cầu)
+        const mandatoryQuizCount = await prisma.knowledgeQuiz.count({
+          where: { isActive: true, isMandatory: true }
+        });
+
+        if (mandatoryQuizCount > 0 && !driver.hasPassedKnowledgeTest) {
+          logger.warn({ driverId: id }, '[SOCKET] Driver registration rejected (Mandatory test not passed)');
           socket.emit('driver:error', { 
             code: 'NOT_CERTIFIED',
-            message: 'Bạn cần hoàn thành bài kiểm tra kiến thức tại Học viện để có thể bật ứng dụng nhận chuyến.' 
+            message: 'Bạn cần hoàn thành các bài kiểm tra kiến thức bắt buộc tại Học viện để có thể bật ứng dụng nhận chuyến.' 
           });
           return;
         }
@@ -157,14 +161,22 @@ export const initSocket = (server) => {
 
       // --- KIỂM TRA NỢ XẤU TÀI XẾ (BẢO VỆ ADMIN) ---
       try {
-        const driverWallet = await prisma.wallet.findUnique({
-          where: { userId: driverId } // driverId ở đây là userId của tài xế (theo logic socket)
+        // Lấy đúng userId của tài xế để kiểm tra ví (Bug fix: driverId ở đây là Driver.id)
+        const driverObj = await prisma.driver.findUnique({
+          where: { id: driverId },
+          select: { userId: true }
         });
 
-        if (driverWallet && driverWallet.balance <= DRIVER_DEBT_LIMIT) {
-          logger.warn({ driverId, balance: driverWallet.balance }, '[TRIP] Driver has excessive debt. Skipping...');
-          // Tự động chuyển sang tài xế tiếp theo ngay lập tức
-          return notifyNextDriver(requestId);
+        if (driverObj) {
+          const driverWallet = await prisma.wallet.findUnique({
+            where: { userId: driverObj.userId }
+          });
+
+          if (driverWallet && driverWallet.balance <= DRIVER_DEBT_LIMIT) {
+            logger.warn({ driverId, balance: driverWallet.balance }, '[TRIP] Driver has excessive debt. Skipping...');
+            // Tự động chuyển sang tài xế tiếp theo ngay lập tức
+            return notifyNextDriver(requestId);
+          }
         }
       } catch (err) {
         logger.error(err, '[TRIP] Error checking driver wallet in notifyNextDriver');

@@ -64,6 +64,27 @@ const adminTestService = {
       where.status = status;
     }
 
+    // AUTO-TIMEOUT CLEANUP: Mark old 'in_progress' sessions as 'timeout'
+    try {
+      const now = new Date();
+      const updated = await prisma.driverTestHistory.updateMany({
+        where: {
+          status: 'in_progress',
+          expiresAt: { lt: now }
+        },
+        data: { status: 'timeout', completedAt: now }
+      });
+
+      if (updated.count > 0) {
+        const { io } = await import('./socket.service.js');
+        if (io) {
+          io.emit('admin:test_updated', { source: 'auto_cleanup', count: updated.count });
+        }
+      }
+    } catch (e) {
+      console.error('[CLEANUP] Error auto-expiring tests:', e);
+    }
+
     const [total, histories] = await Promise.all([
       prisma.driverTestHistory.count({ where }),
       prisma.driverTestHistory.findMany({
@@ -79,6 +100,52 @@ const adminTestService = {
       })
     ]);
     return { total, histories, page, limit };
+  },
+
+  getTestHistorySummary: async (page = 1, limit = 20, search = '') => {
+    const skip = (page - 1) * limit;
+    
+    // Tìm các driver có tham gia thi
+    const where = {
+      testHistories: { some: {} }
+    };
+
+    if (search) {
+      where.OR = [
+        { user: { fullName: { contains: search, mode: 'insensitive' } } },
+        { user: { phone: { contains: search, mode: 'insensitive' } } }
+      ];
+    }
+
+    const [total, drivers] = await Promise.all([
+      prisma.driver.count({ where }),
+      prisma.driver.findMany({
+        where,
+        skip,
+        take: limit,
+        include: {
+          user: { select: { fullName: true, phone: true } },
+          _count: { select: { testHistories: true } },
+          testHistories: {
+            orderBy: { startedAt: 'desc' },
+            take: 1
+          }
+        },
+        orderBy: { user: { fullName: 'asc' } }
+      })
+    ]);
+
+    return { total, drivers, page, limit };
+  },
+
+  getDriverAttempts: async (driverId) => {
+    return await prisma.driverTestHistory.findMany({
+      where: { driverId: parseInt(driverId) },
+      orderBy: { startedAt: 'desc' },
+      include: {
+        quiz: { select: { name: true } }
+      }
+    });
   },
 
   getTestHistoryDetail: async (historyId) => {

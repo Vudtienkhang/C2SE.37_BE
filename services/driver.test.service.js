@@ -42,6 +42,33 @@ const driverTestService = {
     const startOfDay = new Date(now.setHours(0, 0, 0, 0));
     const endOfDay = new Date(now.setHours(23, 59, 59, 999));
 
+    // Kiểm tra xem đã có bài thi nào đang diễn ra chưa (IDEMPOTENCY)
+    const existingTest = await prisma.driverTestHistory.findFirst({
+       where: { 
+         driverId, 
+         quizId: parseInt(quizId), 
+         status: 'in_progress' 
+       },
+       include: { 
+         details: true,
+         quiz: true 
+       }
+    });
+
+    if (existingTest) {
+      console.log(`[DRIVER_TEST] Returning existing in_progress session for driver ${driverId}`);
+      return {
+        sessionId: existingTest.id,
+        quizName: existingTest.quiz.name,
+        expiresAt: existingTest.expiresAt,
+        questions: existingTest.details.slice(0, 5).map(d => ({
+          detailId: d.id,
+          questionText: d.questionSnapshot,
+          options: d.optionsSnapshot
+        }))
+      };
+    }
+
     // Kiểm tra giới hạn retry
     const todayAttempts = await prisma.driverTestHistory.count({
       where: { 
@@ -59,18 +86,8 @@ const driverTestService = {
       throw new Error(`Bạn đã đạt giới hạn thi tối đa (${maxAttempts} lần/lượt). Vui lòng thử lại sau.`);
     }
 
-    const recentFailed = await prisma.driverTestHistory.findFirst({
-      where: { driverId, quizId: parseInt(quizId), status: 'failed' },
-      orderBy: { startedAt: 'desc' }
-    });
+    // Đã xóa bỏ giới hạn chờ 10 phút sau khi trượt (Theo yêu cầu)
 
-    if (recentFailed) {
-      const waitTimeMs = retryDelay * 60 * 1000;
-      const timeSinceFailed = new Date() - new Date(recentFailed.startedAt);
-      if (timeSinceFailed < waitTimeMs) {
-        throw new Error(`Vui lòng chờ ${retryDelay} phút sau lần thi rớt trước để được thi lại.`);
-      }
-    }
 
     // Lấy câu hỏi từ Quiz (Thông qua bảng trung gian)
     const assignedQuestions = await prisma.quizQuestionAssignment.findMany({
@@ -149,12 +166,41 @@ const driverTestService = {
       },
       include: { details: true }
     });
+    
+    // Notify Admin about new test session
+    try {
+      const { io } = await import('./socket.service.js');
+      if (io) io.emit('admin:test_updated', { source: 'start_test', driverId });
+    } catch (e) {}
 
     return {
       sessionId: testHistory.id,
       quizName: quiz.name,
       expiresAt: testHistory.expiresAt,
-      questions: testHistory.details.map(d => ({
+      questions: testHistory.details.slice(0, 5).map(d => ({
+        detailId: d.id,
+        questionText: d.questionSnapshot,
+        options: d.optionsSnapshot
+      }))
+    };
+  },
+
+  /**
+   * Lấy các câu hỏi còn lại của một phiên thi (Lazy Loading)
+   */
+  getRemainingQuestions: async (driverId, sessionId) => {
+    const testHistory = await prisma.driverTestHistory.findUnique({
+      where: { id: sessionId },
+      include: { details: true }
+    });
+
+    if (!testHistory || testHistory.driverId !== driverId) throw new Error('Phiên thi không hợp lệ.');
+    
+    // Trả về các câu từ chỉ số 5 trở đi
+    const remainingDetails = testHistory.details.slice(5);
+
+    return {
+      questions: remainingDetails.map(d => ({
         detailId: d.id,
         questionText: d.questionSnapshot,
         options: d.optionsSnapshot
@@ -163,12 +209,17 @@ const driverTestService = {
   },
 
   submitTest: async (driverId, sessionId, answers) => {
-    const suspiciousSubmitSeconds = await getSystemConfig('KNOWLEDGE_TEST_SUSPICIOUS_SUBMIT_SECONDS', 15);
-
-    const testHistory = await prisma.driverTestHistory.findUnique({
-      where: { id: sessionId },
-      include: { details: true }
-    });
+    // 1. Parallel Fetching of initial data
+    const [suspiciousSubmitSeconds, testHistory] = await Promise.all([
+      getSystemConfig('KNOWLEDGE_TEST_SUSPICIOUS_SUBMIT_SECONDS', 15),
+      prisma.driverTestHistory.findUnique({
+        where: { id: sessionId },
+        include: { 
+          details: true, 
+          quiz: true 
+        }
+      })
+    ]);
 
     if (!testHistory || testHistory.driverId !== driverId) throw new Error('Phiên thi không hợp lệ.');
     if (testHistory.status !== 'in_progress') throw new Error('Bài thi này đã kết thúc.');
@@ -176,6 +227,7 @@ const driverTestService = {
     const now = new Date();
     const timeTaken = (now - new Date(testHistory.startedAt)) / 1000;
     
+    // Safety checks
     if (timeTaken < suspiciousSubmitSeconds) {
        await prisma.driverTestHistory.update({
          where: { id: sessionId },
@@ -192,15 +244,18 @@ const driverTestService = {
        throw new Error('Hết thời gian làm bài.');
     }
 
+    // 2. Memory Calculations
     let score = 0;
-    const updatePromises = [];
+    const detailsUpdates = [];
+    const quiz = testHistory.quiz;
 
     for (let detail of testHistory.details) {
-       const submittedAnswer = answers.find(a => a.detailId === detail.id);
+       // SỬA LỖI: Cast detailId sang Number vì Object.entries từ Frontend có thể biến key thành String
+       const submittedAnswer = answers.find(a => Number(a.detailId) === detail.id);
        const isCorrect = (submittedAnswer?.selectedAnswerIndex === detail.correctAnswerIndex);
        if (isCorrect) score++;
 
-       updatePromises.push(
+       detailsUpdates.push(
          prisma.driverTestDetail.update({
            where: { id: detail.id },
            data: { 
@@ -211,95 +266,108 @@ const driverTestService = {
        );
     }
 
-    await Promise.all(updatePromises);
-    
-    const quiz = await prisma.knowledgeQuiz.findUnique({ where: { id: testHistory.quizId } });
-    if (!quiz) throw new Error('Không tìm thấy thông tin bài kiểm tra.');
-
     const percentage = (score / testHistory.totalScore) * 100;
     const isPassed = percentage >= quiz.minScoreToPass;
 
-    await prisma.driverTestHistory.update({
-      where: { id: sessionId },
-      data: { score, status: isPassed ? 'passed' : 'failed', completedAt: now }
-    });
+    // Fetch existing progress to decide on upserts
+    const [currentProgress, allQuizInModule] = await Promise.all([
+      prisma.driverQuizProgress.findUnique({
+        where: { driverId_quizId: { driverId, quizId: quiz.id } }
+      }),
+      prisma.knowledgeQuiz.findMany({
+        where: { moduleId: quiz.moduleId, isActive: true, isMandatory: true },
+        select: { id: true }
+      })
+    ]);
 
-    // 1. Cập nhật DriverQuizProgress (Lưu điểm cao nhất)
-    const currentProgress = await prisma.driverQuizProgress.findUnique({
-      where: { driverId_quizId: { driverId, quizId: quiz.id } }
-    });
+    // 3. Batch DB Writes via Transaction
+    const transactionTasks = [
+      ...detailsUpdates,
+      prisma.driverTestHistory.update({
+        where: { id: sessionId },
+        data: { score, status: isPassed ? 'passed' : 'failed', completedAt: now }
+      }),
+      prisma.driverQuizProgress.upsert({
+        where: { driverId_quizId: { driverId, quizId: quiz.id } },
+        update: {
+          score: Math.max(currentProgress?.score || 0, score),
+          status: isPassed ? 'COMPLETED' : (currentProgress?.status || 'IDLE'),
+          completedAt: isPassed ? (currentProgress?.completedAt || now) : currentProgress?.completedAt
+        },
+        create: {
+          driverId,
+          quizId: quiz.id,
+          score,
+          status: isPassed ? 'COMPLETED' : 'IDLE',
+          completedAt: isPassed ? now : undefined
+        }
+      })
+    ];
 
-    await prisma.driverQuizProgress.upsert({
-      where: { driverId_quizId: { driverId, quizId: quiz.id } },
-      update: {
-        score: Math.max(currentProgress?.score || 0, score),
-        status: isPassed ? 'COMPLETED' : (currentProgress?.status || 'IDLE'),
-        completedAt: isPassed ? (currentProgress?.completedAt || now) : currentProgress?.completedAt
-      },
-      create: {
-        driverId,
-        quizId: quiz.id,
-        score,
-        status: isPassed ? 'COMPLETED' : 'IDLE',
-        completedAt: isPassed ? now : undefined
-      }
-    });
-
-    // 2. Tự động kiểm tra và cập nhật DriverModuleProgress
-    const allQuizInModule = await prisma.knowledgeQuiz.findMany({
-      where: { moduleId: quiz.moduleId, isActive: true, isMandatory: true }
-    });
-
-    const passedMandatoryQuizzes = await prisma.driverQuizProgress.count({
+    // Module & Global Certification Logic (Deferred Check based on memory)
+    // We already have currentProgress and isPassed. 
+    // 4. Kiểm tra hoàn thành Module & Chứng chỉ
+    // Đếm số bài thi BẮT BUỘC đã đỗ (KHÔNG bao gồm bài này)
+    const passedMandatoryQuizzesCount = await prisma.driverQuizProgress.count({
       where: {
         driverId,
         status: 'COMPLETED',
-        quiz: { moduleId: quiz.moduleId, isActive: true, isMandatory: true }
+        quiz: { moduleId: quiz.moduleId, isActive: true, isMandatory: true },
+        NOT: { quizId: quiz.id }
       }
     });
 
-    if (passedMandatoryQuizzes >= allQuizInModule.length) {
-      await prisma.driverModuleProgress.upsert({
-        where: { driverId_moduleId: { driverId, moduleId: quiz.moduleId } },
-        update: { status: 'COMPLETED', completedAt: now },
-        create: { 
-          driverId, 
-          moduleId: quiz.moduleId, 
-          status: 'COMPLETED', 
-          completedAt: now 
-        }
-      });
-    }
+    const isThisQuizPassed = isPassed || (currentProgress?.status === 'COMPLETED');
+    const totalPassedInModule = passedMandatoryQuizzesCount + (isThisQuizPassed && quiz.isMandatory ? 1 : 0);
+    const isModuleNowComplete = totalPassedInModule >= allQuizInModule.length;
 
-    // 3. Kiểm tra Chứng nhận toàn cục (Global Certification)
-    if (isPassed) {
-      const totalMandatoryQuizzesCount = await prisma.knowledgeQuiz.count({
-        where: { 
-          isActive: true, 
-          isMandatory: true,
-          module: { isActive: true, isMandatory: true }
-        }
-      });
-
-      const driverPassedMandatoryQuizzesCount = await prisma.driverQuizProgress.count({
+    let isCertifiedNow = false;
+    if (isModuleNowComplete) {
+      // Đếm số bài thi BẮT BUỘC toàn cục (KHÔNG bao gồm bài này)
+      const driverPassedOverallCount = await prisma.driverQuizProgress.count({
         where: {
           driverId,
           status: 'COMPLETED',
-          quiz: { 
-            isActive: true, 
-            isMandatory: true,
-            module: { isActive: true, isMandatory: true }
-          }
+          quiz: { isActive: true, isMandatory: true, module: { isActive: true, isMandatory: true } },
+          NOT: { quizId: quiz.id }
         }
       });
 
-      if (driverPassedMandatoryQuizzesCount >= totalMandatoryQuizzesCount) {
-        await prisma.driver.update({
-          where: { id: driverId },
-          data: { isCertified: true, certifiedAt: now, hasPassedKnowledgeTest: true }
-        });
+      const totalMandatoryQuizzesCount = await prisma.knowledgeQuiz.count({
+        where: { isActive: true, isMandatory: true, module: { isActive: true, isMandatory: true } }
+      });
+
+      const totalOverallPassed = driverPassedOverallCount + (isThisQuizPassed && quiz.isMandatory ? 1 : 0);
+      isCertifiedNow = totalOverallPassed >= totalMandatoryQuizzesCount;
+    }
+
+    if (isModuleNowComplete) {
+      transactionTasks.push(
+        prisma.driverModuleProgress.upsert({
+          where: { driverId_moduleId: { driverId, moduleId: quiz.moduleId } },
+          update: { status: 'COMPLETED', completedAt: now },
+          create: { driverId, moduleId: quiz.moduleId, status: 'COMPLETED', completedAt: now }
+        })
+      );
+
+      if (isCertifiedNow) {
+        transactionTasks.push(
+          prisma.driver.update({
+            where: { id: driverId },
+            data: { isCertified: true, certifiedAt: now, hasPassedKnowledgeTest: true }
+          })
+        );
       }
     }
+
+    // Execute everything in one go
+    await prisma.$transaction(transactionTasks);
+
+    // 4. Notify Admin (Outside transaction)
+    try {
+        const { io } = await import('./socket.service.js');
+        if (io) io.emit('admin:test_updated', { source: 'submit_test', driverId });
+    } catch (e) {}
 
     return { score, totalScore: testHistory.totalScore, percentage, isPassed };
   }

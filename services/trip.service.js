@@ -32,28 +32,13 @@ export const fetchTripHistory = async (userId) => {
       status: { in: ['completed', 'cancelled'] },
     },
     include: {
-      customer: { include: { user: true } },
-      driver: { include: { user: true, vehicles: true } },
+      customer: { select: { id: true, fullName: true, avatarUrl: true, user: { select: { phone: true } } } },
+      driver: { select: { id: true, fullName: true, avatarUrl: true, user: { select: { phone: true } } } },
       vehicle: true,
       driverVehicle: true,
-      payments: true,
-      review: true,
-      conversation: {
-        include: {
-          messages: {
-            where: {
-              isRead: false,
-              senderId: { not: id }
-            },
-            select: { id: true }
-          },
-          _count: {
-            select: { messages: true }
-          }
-        }
-      }
     },
     orderBy: { createdAt: 'desc' },
+    take: 20, // Giới hạn 20 chuyến gần nhất để tăng tốc độ tải
   });
 };
 

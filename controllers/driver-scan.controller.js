@@ -132,11 +132,34 @@ export const updateStatus = async (req, res) => {
     const currentDriver = await prisma.driver.findUnique({ where: { id: parseInt(driverId) } });
     if (!currentDriver) return res.status(404).json({ message: 'Không tìm thấy tài xế' });
 
-    if (isOnline && !currentDriver.hasPassedKnowledgeTest) {
-       return res.status(403).json({ 
-         error_code: 'TEST_REQUIRED',
-         message: 'Bạn chưa hoàn thành bài kiểm tra kiến thức bắt buộc.' 
-       });
+    if (isOnline) {
+      const mandatoryQuizCount = await prisma.knowledgeQuiz.count({
+        where: { isActive: true, isMandatory: true }
+      });
+
+      if (mandatoryQuizCount > 0 && !currentDriver.hasPassedKnowledgeTest) {
+        return res.status(403).json({ 
+          error_code: 'TEST_REQUIRED',
+          message: 'Bạn chưa hoàn thành bài kiểm tra kiến thức bắt buộc.' 
+        });
+      }
+    }
+
+    // CHẶN TẮT ONLINE NẾU ĐANG TRONG CHUYẾN ĐI
+    if (isOnline === false) {
+      const activeTrip = await prisma.trip.findFirst({
+        where: {
+          driverId: parseInt(driverId),
+          status: { in: ['accepted', 'arrived', 'started'] }
+        }
+      });
+
+      if (activeTrip) {
+        return res.status(400).json({
+          error_code: 'TRIP_IN_PROGRESS',
+          message: 'Bạn không thể tắt trực tuyến khi đang trong chuyến đi. Vui lòng hoàn thành chuyến đi trước.'
+        });
+      }
     }
 
     const driver = await prisma.driver.update({
@@ -155,6 +178,51 @@ export const updateStatus = async (req, res) => {
   }
 };
 
+/**
+ * Kiểm tra điều kiện để tài xế có thể bật Online (Bài thi bắt buộc)
+ */
+export const checkEligibility = async (req, res) => {
+  try {
+    const { driverId } = req.params;
+    const driver = await prisma.driver.findUnique({
+      where: { id: parseInt(driverId) },
+      select: { hasPassedKnowledgeTest: true }
+    });
+
+    if (!driver) {
+      return res.status(404).json({ success: false, message: 'Không tìm thấy tài xế' });
+    }
+
+    // Đếm số bài thi bắt buộc đang hoạt động
+    const mandatoryQuizCount = await prisma.knowledgeQuiz.count({
+      where: { isActive: true, isMandatory: true }
+    });
+
+    if (mandatoryQuizCount > 0 && !driver.hasPassedKnowledgeTest) {
+      // Lấy danh sách tên bài thi bắt buộc để thông báo (nếu muốn)
+      const mandatoryQuizzes = await prisma.knowledgeQuiz.findMany({
+        where: { isActive: true, isMandatory: true },
+        select: { name: true }
+      });
+
+      return res.status(200).json({
+        eligible: false,
+        reason: 'TEST_REQUIRED',
+        message: 'Bạn cần hoàn thành các bài kiểm tra kiến thức bắt buộc trước khi bật Online.',
+        mandatoryQuizzes: mandatoryQuizzes.map(q => q.name)
+      });
+    }
+
+    return res.status(200).json({
+      eligible: true,
+      message: 'Tài xế đủ điều kiện Online'
+    });
+  } catch (error) {
+    logger.error(error, 'Error checking driver eligibility');
+    res.status(500).json({ success: false, message: 'Lỗi hệ thống khi kiểm tra điều kiện' });
+  }
+};
+
 export const verifyFace = async (req, res) => {
   try {
     const { driverId } = req.params;
@@ -168,6 +236,19 @@ export const verifyFace = async (req, res) => {
     // If AWS credentials don't exist in env, we will mock success 
     if (!process.env.AWS_ACCESS_KEY_ID) {
       logger.warn('[BACKEND] AWS credentials not found. Mocking successful face verification.');
+      
+      const currentDriver = await prisma.driver.findUnique({ where: { id: parseInt(driverId) } });
+      const mandatoryQuizCount = await prisma.knowledgeQuiz.count({
+        where: { isActive: true, isMandatory: true }
+      });
+
+      if (mandatoryQuizCount > 0 && !currentDriver.hasPassedKnowledgeTest) {
+        return res.status(403).json({ 
+           error_code: 'TEST_REQUIRED',
+           message: 'Bạn chưa hoàn thành bài kiểm tra kiến thức bắt buộc.' 
+        });
+      }
+
       await new Promise(resolve => setTimeout(resolve, 800)); // Nhanh hơn mock cũ
       
       const driver = await prisma.driver.update({
@@ -185,7 +266,11 @@ export const verifyFace = async (req, res) => {
       return res.status(404).json({ message: 'Tài xế chưa có ảnh hồ sơ gốc để đối chiếu' });
     }
 
-    if (!driver.hasPassedKnowledgeTest) {
+    const mandatoryQuizCount = await prisma.knowledgeQuiz.count({
+      where: { isActive: true, isMandatory: true }
+    });
+
+    if (mandatoryQuizCount > 0 && !driver.hasPassedKnowledgeTest) {
       return res.status(403).json({ 
          error_code: 'TEST_REQUIRED',
          message: 'Bạn chưa hoàn thành bài kiểm tra kiến thức bắt buộc.' 

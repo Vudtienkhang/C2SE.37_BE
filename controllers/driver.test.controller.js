@@ -42,6 +42,23 @@ const driverTestController = {
       console.error(error);
       return res.status(400).json({ error: error.message });
     }
+  },
+
+  getRemainingQuestions: async (req, res) => {
+    try {
+      let driverId = req.user.driverId;
+      if (!driverId) {
+         const driver = await prisma.driver.findUnique({ where: { userId: req.user.id } });
+         driverId = driver.id;
+      }
+      
+      const { sessionId } = req.params;
+      const result = await driverTestService.getRemainingQuestions(driverId, parseInt(sessionId));
+      return res.status(200).json({ message: 'Lấy danh sách câu hỏi bổ sung thành công', data: result });
+    } catch (error) {
+      console.error(error);
+      return res.status(400).json({ error: error.message });
+    }
   }
 };
 

@@ -61,6 +61,29 @@ const adminTestController = {
     }
   },
 
+  getTestHistorySummary: async (req, res) => {
+    try {
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 20;
+      const search = req.query.search || '';
+      
+      const data = await adminTestService.getTestHistorySummary(page, limit, search);
+      res.status(200).json({ data });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  },
+
+  getDriverAttempts: async (req, res) => {
+    try {
+      const { driverId } = req.params;
+      const data = await adminTestService.getDriverAttempts(driverId);
+      res.status(200).json({ data });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  },
+
   getTestHistoryDetail: async (req, res) => {
     try {
       const data = await adminTestService.getTestHistoryDetail(req.params.id);

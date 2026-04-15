@@ -29,6 +29,10 @@ const certificateService = {
         doc.on('data', buffers.push.bind(buffers));
         doc.on('end', () => resolve(Buffer.concat(buffers)));
 
+        // --- FONTS ---
+        const fontBold = path.join(process.cwd(), 'assets', 'fonts', 'inter_bold.ttf');
+        const fontRegular = path.join(process.cwd(), 'assets', 'fonts', 'inter_regular.ttf');
+
         // --- BACKGROUND / DESIGN ---
         // Vẽ khung viền trang trí
         doc.rect(20, 20, doc.page.width - 40, doc.page.height - 40)
@@ -47,12 +51,12 @@ const certificateService = {
         // Logo hoặc Header
         doc.fillColor('#111827')
            .fontSize(40)
-           .font('Helvetica-Bold')
+           .font(fontBold)
            .text('CHỨNG NHẬN HOÀN THÀNH', { align: 'center' });
         
         doc.moveDown(0.5);
         doc.fontSize(20)
-           .font('Helvetica')
+           .font(fontRegular)
            .text('KHÓA ĐÀO TẠO KIẾN THỨC TÀI XẾ CHUYÊN NGHIỆP', { align: 'center' });
 
         doc.moveDown(2);
@@ -62,17 +66,17 @@ const certificateService = {
         doc.moveDown(1);
         doc.fillColor('#F97316')
            .fontSize(36)
-           .font('Helvetica-Bold')
+           .font(fontBold)
            .text(driver.user.fullName?.toUpperCase() || 'TAI XE ANONYMOUS', { align: 'center' });
 
         doc.moveDown(1);
         doc.fillColor('#4B5563')
            .fontSize(14)
-           .font('Helvetica')
+           .font(fontRegular)
            .text(`Số điện thoại: ${driver.user.phone}`, { align: 'center' });
         
         doc.moveDown(1.5);
-        doc.fontSize(16)
+        doc.fontSize(14) // Giảm size một chút để tránh tràn dòng
            .text('Vì đã hoàn thành xuất sắc tất cả các Module đào tạo kiến thức,', { align: 'center' });
         doc.text('quy tắc an toàn và quy trình nghiệp vụ của hệ thống.', { align: 'center' });
 
@@ -85,7 +89,7 @@ const certificateService = {
            .text(dateString, 60, 480);
         
         doc.text('GIÁM ĐỐC ĐIỀU HÀNH', 600, 480);
-        doc.font('Helvetica-Bold')
+        doc.font(fontBold)
            .text('(Đã ký điện tử)', 600, 500);
 
         doc.end();
