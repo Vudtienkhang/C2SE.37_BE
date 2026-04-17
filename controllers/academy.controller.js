@@ -51,6 +51,15 @@ const academyController = {
     }
   },
 
+  deleteContent: async (req, res) => {
+    try {
+      await academyService.deleteContent(req.params.id);
+      res.status(200).json({ message: 'Xóa bài giảng thành công' });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  },
+
   // --- DRIVER: Academy Flow ---
   getAcademyStatus: async (req, res) => {
     try {

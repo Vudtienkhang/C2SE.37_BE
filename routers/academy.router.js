@@ -16,5 +16,6 @@ router.post('/admin/modules', verifyAdminToken, checkPermission('SYSTEM_CONFIG_M
 router.put('/admin/modules/:id', verifyAdminToken, checkPermission('SYSTEM_CONFIG_MANAGE'), academyController.updateModule);
 router.delete('/admin/modules/:id', verifyAdminToken, checkPermission('SYSTEM_CONFIG_MANAGE'), academyController.deleteModule);
 router.post('/admin/modules/:moduleId/contents', verifyAdminToken, checkPermission('SYSTEM_CONFIG_MANAGE'), academyController.addContent);
+router.delete('/admin/contents/:id', verifyAdminToken, checkPermission('SYSTEM_CONFIG_MANAGE'), academyController.deleteContent);
 
 export default router;

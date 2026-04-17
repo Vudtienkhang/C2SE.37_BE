@@ -17,7 +17,7 @@ const academyService = {
         _count: { 
           select: { 
             contents: true,
-            moduleQuestions: true
+            questions: true
           } 
         } 
       }
@@ -112,7 +112,7 @@ const academyService = {
 
     let previousCompleted = true; 
 
-    return allModules.map((mod) => {
+    const results = allModules.map((mod) => {
       const modProg = moduleProgressMap.get(mod.id);
       
       const quizzes = mod.quizzes.map(q => {
@@ -152,17 +152,11 @@ const academyService = {
     });
 
     // --- TỰ ĐỘNG CẬP NHẬT CHỨNG CHỈ (SELF-HEALING) ---
-    // Chỉ xử lý nếu có ít nhất 1 module trong hệ thống
     if (results.length > 0) {
         // Lọc ra các module bắt buộc
         const mandatoryModules = results.filter(m => m.isMandatory);
         
-        // Nếu không có module nào được đánh dấu bắt buộc, ta coi như tất cả đều bắt buộc 
-        // hoặc đơn giản là kiểm tra xem có module nào hoàn thành chưa.
-        // Ở đây để an toàn, nếu có module bắt buộc thì phải xong hết, 
-        // nếu không có cái nào bắt buộc thì ta dùng danh sách gốc.
         const targetModules = mandatoryModules.length > 0 ? mandatoryModules : results;
-
         const allFinished = targetModules.every(m => m.isCompleted);
 
         if (allFinished) {

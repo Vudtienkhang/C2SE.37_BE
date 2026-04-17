@@ -845,10 +845,212 @@ export const initSocket = (server) => {
           // 3. BROADCAST TO ALL ADMINS
           io.emit('admin:sos_alert', payload);
           logger.warn({ tripId }, '[SOS ALERT] Broadcasted to admins!');
+
+          // 4. PERSISTENT NOTIFICATION FOR ALL ADMINS
+          const notificationService = (await import('./notification.service.js')).default;
+          await notificationService.notifyAdmins(
+            'CẢNH BÁO SOS KHẨN CẤP',
+            `Yêu cầu cứu trợ từ ${callerRole === 'driver' ? 'tài xế' : 'khách hàng'} tại chuyến đi #${tripId}`,
+            'EMERGENCY',
+            { tripId: parseInt(tripId), alertId: payload.id }
+          ).catch(e => logger.error('[SOS] Failed to notify admins:', e.message));
+
+          // 5. ALERT NEARBY DRIVERS (RADIUS 2KM)
+          if (lat && lng) {
+            try {
+              const nearby = await redis.geosearch(
+                'drivers:locations',
+                'FROMLONLAT', parseFloat(lng), parseFloat(lat),
+                'BYRADIUS', 2, 'km',
+                'ASC'
+              );
+              
+              if (nearby && nearby.length > 0) {
+                nearby.forEach(dId => {
+                  // Không gửi cho chính người gọi nếu người gọi là tài xế
+                  if (callerRole === 'driver' && parseInt(dId) === parseInt(callerId)) return;
+                  
+                  io.to(`driver_${dId}`).emit('trip:sos_nearby', {
+                    tripId: parseInt(tripId),
+                    lat: parseFloat(lat),
+                    lng: parseFloat(lng),
+                    message: 'CẢNH BÁO: Có yêu cầu cứu trợ khẩn cấp gần vị trí của bạn!'
+                  });
+                });
+                logger.info({ count: nearby.length }, '[SOS] Alerted nearby drivers');
+              }
+            } catch (geoErr) {
+              logger.error(geoErr, '[SOS GEO ERROR] Failed to search nearby drivers');
+            }
+          }
         }
         
       } catch (err) {
         logger.error(err, '[SOS ERROR] Global failure in SOS socket');
+      }
+    });
+
+    // ==========================================
+    // --- ĐIỀU PHỐI KHẨN CẤP (ADMIN INTERVENTION) ---
+    // ==========================================
+
+    // Admin Chat: Cho phép Admin gửi tin nhắn vào cuộc hội thoại của chuyến đi
+    socket.on('admin:send_chat', async (data) => {
+      try {
+        const { tripId, senderId, content } = data;
+        logger.info({ tripId }, '[ADMIN CHAT] Admin sending intervention message');
+
+        // Tự động tạo hội thoại nếu chưa tồn tại
+        const conversation = await prisma.conversation.upsert({
+          where: { tripId: parseInt(tripId) },
+          update: {},
+          create: { tripId: parseInt(tripId) }
+        });
+
+        const dbMessage = await prisma.message.create({
+          data: {
+            conversationId: conversation.id,
+            senderId: parseInt(senderId), // ID của Admin
+            content: `[HỆ THỐNG]: ${content}`,
+            messageType: 'text',
+          },
+          include: { sender: { select: { fullName: true } } }
+        });
+
+        // Broadcast tới cả tài xế và khách hàng, kèm theo tripId để frontend dễ lọc
+        const emitData = { ...dbMessage, tripId: parseInt(tripId) };
+        io.to(`trip_${tripId}`).to(`chat_${tripId}`).emit('chat:receive_message', emitData);
+        io.to(`trip_${tripId}`).to(`chat_${tripId}`).emit('chat:new_message', emitData);
+        
+        logger.info({ tripId }, '[ADMIN CHAT] Message delivered');
+      } catch (err) {
+        logger.error(err, '[ADMIN CHAT ERROR]');
+      }
+    });
+
+    // Admin Join Room: Cho phép Admin tham gia vào phòng của chuyến đi để nhận chat real-time
+    socket.on('admin:join_trip', (data) => {
+      try {
+        const { tripId } = data;
+        socket.join(`trip_${tripId}`);
+        socket.join(`chat_${tripId}`);
+        logger.info({ tripId, socketId: socket.id }, '[ADMIN] Joined trip/chat rooms');
+      } catch (err) {
+        logger.error(err, '[ADMIN JOIN ROOM ERROR]');
+      }
+    });
+
+    // Admin Leave Room: Thoát khỏi phòng khi không theo dõi nữa
+    socket.on('admin:leave_trip', (data) => {
+      try {
+        const { tripId } = data;
+        socket.leave(`trip_${tripId}`);
+        socket.leave(`chat_${tripId}`);
+        logger.info({ tripId, socketId: socket.id }, '[ADMIN] Left trip/chat rooms');
+      } catch (err) {
+        logger.error(err, '[ADMIN LEAVE ROOM ERROR]');
+      }
+    });
+
+    // Admin Re-dispatch: Điều xe khác thay thế cho tài xế hiện tại
+    socket.on('admin:re_dispatch', async (data) => {
+      try {
+        const { tripId, reason } = data;
+        logger.warn({ tripId, reason }, '[ADMIN DISPATCH] Re-dispatching trip');
+
+        // 1. Lấy thông tin chuyến đi
+        const trip = await prisma.trip.findUnique({
+          where: { id: parseInt(tripId) },
+          include: { 
+            customer: { include: { user: true } },
+            driver: true 
+          }
+        });
+
+        if (!trip || ['completed', 'cancelled'].includes(trip.status)) {
+          return socket.emit('admin:error', { message: 'Không thể điều lại chuyến đi này' });
+        }
+
+        // 2. Giải phóng tài xế cũ
+        if (trip.driverId) {
+          await prisma.driver.update({
+            where: { id: trip.driverId },
+            data: { isBusy: false }
+          });
+          
+          // Thông báo cho tài xế cũ
+          io.to(`driver_${trip.driverId}`).emit('trip:cancelled_by_admin', { 
+            tripId, 
+            reason: 'Hệ thống đã điều xe khác thay thế bạn để hỗ trợ khách hàng.' 
+          });
+          logger.info({ driverId: trip.driverId }, '[ADMIN DISPATCH] Old driver released');
+        }
+
+        // 3. Cập nhật trạng thái chuyến đi về 'requested' để bắt đầu tìm lại
+        await prisma.trip.update({
+          where: { id: parseInt(tripId) },
+          data: { 
+            status: 'requested',
+            driverId: null,
+            driverVehicleId: null,
+            cancelReason: `Admin Re-dispatch: ${reason}`
+          }
+        });
+
+        // 4. Kích hoạt lại luồng tìm xe (Search flow)
+        // Tìm tài xế xung quanh vị trí điểm đón cũ
+        const nearby = await redis.geosearch(
+          'drivers:locations',
+          'FROMLONLAT', trip.pickupLng, trip.pickupLat,
+          'BYRADIUS', 5, 'km',
+          'ASC'
+        );
+
+        if (nearby && nearby.length > 0) {
+          const requestId = `req_dispatch_${Date.now()}_${trip.customerId}`;
+          
+          // Lọc bỏ tài xế cũ để không nhận lại ngay lập tức
+          const filteredDrivers = nearby
+            .map(id => parseInt(id))
+            .filter(id => id !== trip.driverId);
+
+          pendingTrips.set(requestId, {
+            data: {
+              pickupAddress: trip.pickupAddress,
+              pickupLat: trip.pickupLat,
+              pickupLng: trip.pickupLng,
+              dropoffAddress: trip.dropoffAddress,
+              price: trip.priceEstimate,
+              passengerName: trip.customer.user.fullName,
+              passengerId: trip.customer.userId,
+              serviceType: trip.serviceType,
+              isRedispatch: true,
+              originalTripId: trip.id
+            },
+            driverIds: filteredDrivers,
+            currentIndex: 0,
+            timeout: null,
+            // Chúng ta không có socketId gốc của khách, nhưng có thể tìm qua room
+            customerSocketId: `user_${trip.customer.userId}` 
+          });
+
+          notifyNextDriver(requestId);
+          
+          // Thông báo cho khách hàng
+          io.to(`user_${trip.customer.userId}`).emit('trip:status_updated', { 
+            tripId: trip.id, 
+            status: 'requested',
+            message: 'Hệ thống đang điều xe khác đến hỗ trợ bạn. Vui lòng đợi trong giây lát.'
+          });
+
+          socket.emit('admin:success', { message: 'Đã bắt đầu quy trình điều xe thay thế.' });
+        } else {
+          socket.emit('admin:error', { message: 'Không tìm thấy tài xế nào khả dụng xung quanh để thay thế.' });
+        }
+
+      } catch (err) {
+        logger.error(err, '[ADMIN DISPATCH ERROR]');
+        socket.emit('admin:error', { message: 'Lỗi hệ thống khi điều xe thay thế.' });
       }
     });
 
@@ -895,8 +1097,8 @@ export const initSocket = (server) => {
           }
         });
 
-        // 3. Chuẩn bị message để gửi đi
-        const message = { ...dbMessage, tempId };
+        // 3. Chuẩn bị message để gửi đi, thêm tripId để đồng bộ real-time cho Admin
+        const message = { ...dbMessage, tempId, tripId: parseInt(tripId) };
 
         // 5. Tìm người nhận để gửi thông báo hệ thống
         try {
@@ -931,11 +1133,9 @@ export const initSocket = (server) => {
         }
 
         // 5. Broadcast tới các bên trong trip
-        // Gửi qua room trip_ để những người đang ở màn hình tracking nhận được badge
-        io.to(`trip_${tripId}`).emit('chat:receive_message', message);
-        
-        // Gửi qua room chat_ (nếu có tách biệt)
-        io.to(`chat_${tripId}`).emit('chat:new_message', message);
+        // Gửi qua cả 2 room để đảm bảo realtime cho cả màn hình tracking và màn hình chat
+        io.to(`trip_${tripId}`).to(`chat_${tripId}`).emit('chat:receive_message', message);
+        io.to(`trip_${tripId}`).to(`chat_${tripId}`).emit('chat:new_message', message);
 
       } catch (error) {
         logger.error(error, '[CHAT ERROR] Send message error');

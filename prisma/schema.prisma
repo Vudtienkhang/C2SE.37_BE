@@ -139,11 +139,9 @@ model Driver {
   quizProgress           DriverQuizProgress[]
   testHistories          DriverTestHistory[]
   vehicles               DriverVehicle[]
-  OnlineSession          OnlineSession[]
   reviews                Review[]
   trips                  Trip[]
   commissions            TripCommission[]
-  TripOffer              TripOffer[]
   tips                   TripTip[]
   onlineSessions         OnlineSession[]
   tripOffers             TripOffer[]
@@ -708,29 +706,6 @@ model DriverTestDetail {
   selectedAnswerIndex Int?
   isCorrect           Boolean           @default(false)
   testHistory         DriverTestHistory @relation(fields: [testHistoryId], references: [id], onDelete: Cascade)
-}
-
-model OnlineSession {
-  id        Int       @id @default(autoincrement())
-  driverId  Int
-  startTime DateTime  @default(now())
-  endTime   DateTime?
-  Driver    Driver    @relation(fields: [driverId], references: [id], onDelete: Cascade)
-
-  @@index([driverId])
-}
-
-model TripOffer {
-  id          Int             @id @default(autoincrement())
-  requestId   String
-  driverId    Int
-  status      TripOfferStatus @default(PENDING)
-  offeredAt   DateTime        @default(now())
-  respondedAt DateTime?
-  Driver      Driver          @relation(fields: [driverId], references: [id], onDelete: Cascade)
-
-  @@index([driverId])
-  @@index([requestId])
 }
 
 enum UserStatus {
