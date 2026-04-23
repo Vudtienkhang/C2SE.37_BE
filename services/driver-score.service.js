@@ -1,5 +1,6 @@
 import prisma from '../prisma/prisma.js';
 import redis from '../lib/redis.js';
+import logger from '../lib/logger.js';
 import { getConfig } from './config.service.js';
 
 export const SCORE_REASONS = {
@@ -13,7 +14,7 @@ export const SCORE_REASONS = {
   PEAK_HOUR_BONUS: 'Thưởng giờ cao điểm',
   NIGHT_TRIP_BONUS: 'Thưởng chuyến đi đêm',
   LONG_TRIP_BONUS: 'Thưởng chuyến đi đường dài',
-  CUSTOMER_COMPLAINT: 'Khiếu nại từ khách hàng',
+  COMPLAINT: 'Khiếu nại từ khách hàng',
 };
 
 // Mặc định (Fallback) nếu DB không có cấu hình
@@ -28,7 +29,7 @@ const DEFAULT_SCORE_VALUES = {
   PEAK_HOUR_BONUS: 5,
   NIGHT_TRIP_BONUS: 5,
   LONG_TRIP_BONUS: 10,
-  CUSTOMER_COMPLAINT: -50,
+  COMPLAINT: -50,
 };
 
 /**
@@ -38,17 +39,23 @@ const DEFAULT_SCORE_VALUES = {
  * @param {number} [tripId] - (Optional) ID chuyến đi liên quan
  */
 export const updateDriverScore = async (driverId, reason, tripId = null) => {
+  const driverIdInt = parseInt(driverId);
   // Lấy bảng điểm từ Config (Động)
   const policy = await getConfig('DRIVER_SCORE_POLICY', DEFAULT_SCORE_VALUES);
-  const amount = policy[reason] || 0;
+  let amount = policy[reason] !== undefined ? parseInt(policy[reason]) : 0;
   
-  if (amount === 0 && reason !== 'RATING_3_STAR') return;
+  logger.debug({ reason, amount }, '[SCORE] Calculating point change');
+  
+  if (amount === 0 && reason !== 'RATING_3_STAR') {
+    logger.debug({ reason }, '[SCORE] Amount is 0, skipping update');
+    return;
+  }
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
+      const result = await prisma.$transaction(async (tx) => {
       // 1. Cập nhật totalPoints của tài xế
       const driver = await tx.driver.update({
-        where: { id: driverId },
+        where: { id: driverIdInt },
         data: { totalPoints: { increment: amount } },
         select: { id: true, totalPoints: true }
       });
@@ -56,25 +63,25 @@ export const updateDriverScore = async (driverId, reason, tripId = null) => {
       // 2. Lưu log lịch sử điểm
       await tx.driverPointLog.create({
         data: {
-          driverId,
+          driverId: driverIdInt,
           amount,
           reason: SCORE_REASONS[reason] || reason,
-          tripId
+          tripId: tripId ? parseInt(tripId) : null
         }
       });
 
       return driver;
-    });
+    }, { timeout: 15000 });
 
     // 3. Đồng bộ lên Redis Leaderboard (ZSET)
     // Key: 'leaderboard:drivers'
-    await redis.zadd('leaderboard:drivers', result.totalPoints, driverId.toString());
+    await redis.zadd('leaderboard:drivers', result.totalPoints, driverIdInt.toString());
 
     // Phát sự kiện real-time qua socket tới tài xế
     try {
         const { emitToUser } = await import('./socket.service.js');
         const driver = await prisma.driver.findUnique({ 
-            where: { id: driverId }, 
+            where: { id: driverIdInt }, 
             select: { userId: true } 
         });
         if (driver) {
@@ -88,7 +95,7 @@ export const updateDriverScore = async (driverId, reason, tripId = null) => {
         console.warn('[SCORE] Failed to emit socket event:', socketError.message);
     }
 
-    console.log(`[SCORE] Updated driver ${driverId}: ${amount} pts (Reason: ${reason}). Total: ${result.totalPoints}`);
+    logger.info(`[SCORE] Updated driver ${driverIdInt}: ${amount} pts (Reason: ${reason}). Total: ${result.totalPoints}`);
     return result;
   } catch (error) {
     console.error(`[SCORE ERROR] Failed to update score for driver ${driverId}:`, error);

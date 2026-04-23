@@ -1,27 +1,27 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import Groq from "groq-sdk";
 import logger from '../lib/logger.js';
 
 /**
- * Service to handle Google Generative AI for question generation.
+ * Service to handle Groq cloud for question generation.
  */
 class AIService {
   constructor() {
-    this.apiKey = process.env.GEMINI_API_KEY;
+    this.apiKey = process.env.GROQ_API_KEY;
     if (this.apiKey) {
-      this.genAI = new GoogleGenerativeAI(this.apiKey);
-      // Sử dụng Gemini 2.5/2.0 Flash - các mẫu mới nhất khả dụng trong môi trường của bạn
+      this.groq = new Groq({ apiKey: this.apiKey });
+      // Llama 3 models on Groq
       this.availableModels = [
-          "gemini-2.5-flash", 
-          "gemini-2.0-flash"
+          "llama-3.3-70b-versatile",
+          "llama-3.1-8b-instant"
       ];
     } else {
-      logger.warn("GEMINI_API_KEY is not defined in environment variables. AI features won't work.");
+      logger.warn("GROQ_API_KEY is not defined in environment variables. AI features won't work.");
     }
   }
 
   async generateQuestions(moduleData, counts, examples = []) {
-    if (!this.genAI) {
-      throw new Error("AI Setup Incomplete: Missing GEMINI_API_KEY in .env");
+    if (!this.groq) {
+      throw new Error("AI Setup Incomplete: Missing GROQ_API_KEY in .env");
     }
 
     const { easyCount = 0, mediumCount = 0, hardCount = 0 } = counts;
@@ -40,12 +40,16 @@ Nhiệm vụ: Tạo đúng số lượng câu hỏi trắc nghiệm dưới dạ
 Đối tượng: Tài xế xe máy/ô tô công nghệ.
 Phong cách: Thực tế, chuyên nghiệp, sát với quy trình vận hành và an toàn giao thông.
 
-ĐỊNH DẠNG TRẢ VỀ: Một mảng các đối tượng JSON có cấu trúc:
+ĐỊNH DẠNG TRẢ VỀ: Trả về một đối tượng JSON có thuộc tính "questions" là một mảng các đối tượng:
 {
-  "questionText": string,
-  "options": string[4],
-  "correctAnswerIndex": number (0-3),
-  "difficulty": "EASY" | "MEDIUM" | "HARD"
+  "questions": [
+    {
+      "questionText": string,
+      "options": string[4],
+      "correctAnswerIndex": number (0-3),
+      "difficulty": "EASY" | "MEDIUM" | "HARD"
+    }
+  ]
 }`;
 
     const userPrompt = `Hãy tạo ${totalCount} câu hỏi mới cho Module: "${moduleData.name}".
@@ -53,54 +57,48 @@ Mô tả: ${moduleData.description || 'N/A'}
 Nội dung bài học:
 ${contentContext}
 
-Yêu cầu phân bổ: ${easyCount} Dễ, ${mediumCount} Trung bình, ${hardCount} Khó.
+Yêu cầu phân bổ: ${easyCount} Dễ (EASY), ${mediumCount} Trung bình (MEDIUM), ${hardCount} Khó (HARD).
 ${exampleBlock}`;
 
     let lastError;
     for (const modelName of this.availableModels) {
         try {
-            const model = this.genAI.getGenerativeModel({ 
+            logger.info(`Đang thử sinh câu hỏi bằng Groq model: ${modelName}`);
+            const completion = await this.groq.chat.completions.create({
+                messages: [
+                    { role: "system", content: systemInstruction },
+                    { role: "user", content: userPrompt }
+                ],
                 model: modelName,
-                systemInstruction: systemInstruction 
+                temperature: 0.3,
+                max_tokens: 4096,
+                response_format: { type: "json_object" }
             });
 
-            const result = await model.generateContent({
-                contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-                generationConfig: {
-                    responseMimeType: "application/json",
-                    temperature: 0.2, 
-                    maxOutputTokens: 4096, // Tăng giới hạn để tránh bị cắt cụt JSON
-                }
-            });
-
-            let responseText = result.response.text();
-            
-            // Xử lý trường hợp AI trả về markdown code block dù đã set JSON mode
-            if (responseText.includes('```json')) {
-                responseText = responseText.split('```json')[1].split('```')[0].trim();
-            } else if (responseText.includes('```')) {
-                responseText = responseText.split('```')[1].split('```')[0].trim();
-            }
+            const responseText = completion.choices[0]?.message?.content;
+            if (!responseText) throw new Error("AI không trả về nội dung.");
 
             try {
                 const parsedData = JSON.parse(responseText.trim());
-                logger.info(`Đã sinh câu hỏi thành công bằng model: ${modelName} (JSON Mode)`);
-                return Array.isArray(parsedData) ? parsedData : (parsedData.questions || []);
+                const questions = Array.isArray(parsedData) ? parsedData : (parsedData.questions || []);
+                
+                logger.info(`Đã sinh ${questions.length} câu hỏi thành công bằng model: ${modelName}`);
+                return questions;
             } catch (pError) {
-                logger.error(`Lỗi parse JSON từ AI (${modelName}): ${pError.message}`);
-                logger.debug(`Nội dung lỗi: ${responseText}`);
-                throw new Error("Dữ liệu AI trả về bị lỗi định dạng. Vui lòng thử lại.");
+                logger.error(`Lỗi parse JSON từ Groq (${modelName}): ${pError.message}`);
+                throw new Error("Dữ liệu AI trả về bị lỗi định dạng JSON.");
             }
 
         } catch (error) {
             lastError = error;
-            logger.warn(`Model ${modelName} thất bại: ${error.message}`);
-            if (error.message.includes('429')) continue; 
-            if (!error.message.includes('503')) break;
+            logger.warn(`Model Groq ${modelName} thất bại: ${error.message}`);
+            // Nếu lỗi 429 hoặc lỗi service thì thử model tiếp theo
+            if (error.message.includes('429') || error.message.includes('500') || error.message.includes('503')) continue; 
+            break;
         }
     }
 
-    throw new Error(lastError?.message || 'Lỗi sinh câu hỏi AI');
+    throw new Error(lastError?.message || 'Lỗi sinh câu hỏi AI bằng Groq');
   }
 }
 

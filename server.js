@@ -4,6 +4,7 @@ import app from './app.js';
 import { initSocket } from './services/socket.service.js';
 import { assertDb } from './lib/db.js';
 import logger from './lib/logger.js';
+import './services/queue.service.js'; // Khởi chạy Background Worker
 
 const PORT = process.env.PORT || 5000;
 const server = http.createServer(app);

@@ -11,7 +11,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // Request Logger
 app.use((req, res, next) => {
-  logger.info({ method: req.method, url: req.url }, 'Incoming Request');
+  logger.debug({ method: req.method, url: req.url }, 'Incoming Request');
   next();
 });
 

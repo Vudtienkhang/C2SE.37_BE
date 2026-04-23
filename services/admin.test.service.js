@@ -10,9 +10,11 @@ const adminTestService = {
       where.questionText = { contains: search, mode: 'insensitive' };
     }
     if (filters.moduleId) {
-      where.moduleAssignments = {
-        some: { moduleId: parseInt(filters.moduleId) }
-      };
+      where.OR = [
+        { moduleAssignments: { some: { moduleId: parseInt(filters.moduleId) } } },
+        { moduleId: parseInt(filters.moduleId) },
+        { moduleId: null } // Cho phép lấy cả câu hỏi tự do để gán vào module/quiz
+      ];
     }
 
     const [total, questions] = await Promise.all([
@@ -29,27 +31,42 @@ const adminTestService = {
   },
 
   createQuestion: async (data) => {
+    const mId = data.moduleId ? parseInt(data.moduleId) : null;
     return await prisma.knowledgeQuestion.create({
       data: {
         questionText: data.questionText,
         options: data.options,
         correctAnswerIndex: data.correctAnswerIndex,
         difficulty: data.difficulty || 'MEDIUM',
-        moduleId: data.moduleId ? parseInt(data.moduleId) : null,
-        isActive: data.isActive !== undefined ? data.isActive : true
+        moduleId: mId,
+        isActive: data.isActive !== undefined ? data.isActive : true,
+        moduleAssignments: mId ? {
+          create: { moduleId: mId }
+        } : undefined
       }
     });
   },
 
   updateQuestion: async (id, data) => {
+    const qId = parseInt(id);
+    const mId = data.moduleId ? parseInt(data.moduleId) : null;
+    
+    // Nếu đổi moduleId, cập nhật cả bảng liên kết
+    if (mId) {
+        await prisma.moduleQuestionAssignment.deleteMany({ where: { questionId: qId } });
+        await prisma.moduleQuestionAssignment.create({
+            data: { questionId: qId, moduleId: mId }
+        });
+    }
+
     return await prisma.knowledgeQuestion.update({
-      where: { id: parseInt(id) },
+      where: { id: qId },
       data: {
         questionText: data.questionText,
         options: data.options,
         correctAnswerIndex: data.correctAnswerIndex,
         difficulty: data.difficulty,
-        moduleId: data.moduleId ? parseInt(data.moduleId) : null,
+        moduleId: mId,
         isActive: data.isActive
       }
     });

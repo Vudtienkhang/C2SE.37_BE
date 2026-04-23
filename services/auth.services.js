@@ -191,7 +191,14 @@ export const getUserById = async (id) => {
   const [user, customer, driver, wallet] = await Promise.all([
     prisma.user.findUnique({ where: { id: numericId } }),
     prisma.customer.findUnique({ where: { userId: numericId } }),
-    prisma.driver.findUnique({ where: { userId: numericId }, include: { DriverRank: true, documents: true } }),
+    prisma.driver.findUnique({ 
+      where: { userId: numericId }, 
+      include: { 
+        DriverRank: true, 
+        documents: { include: { documentType: true } },
+        vehicles: true
+      } 
+    }),
     prisma.wallet.findUnique({ 
       where: { userId: numericId },
       include: { transactions: { orderBy: { createdAt: 'desc' }, take: 10 } }
@@ -246,7 +253,9 @@ export const getUserById = async (id) => {
       licenseNumber: driver.licenseNumber,
       licenseType: driver.licenseType,
       avatarUrl: driver.avatarUrl,
-      documents: driver.documents
+      serviceType: driver.serviceType,
+      documents: driver.documents,
+      vehicles: driver.vehicles
     } : null,
     wallet: wallet ? { 
       id: wallet.id, 

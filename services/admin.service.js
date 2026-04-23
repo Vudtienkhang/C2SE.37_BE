@@ -2,6 +2,8 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import prisma from '../prisma/prisma.js';
 import notificationService from './notification.service.js';
+import { getIO } from './socket.service.js';
+import { invalidateProfileCache } from './auth.services.js';
 const JWT_SECRET = process.env.JWT_SECRET || 'safeway_super_secret_key';
 
 export const loginUser = async ({ email, password }) => {
@@ -53,58 +55,101 @@ export const loginUser = async ({ email, password }) => {
     };
 };
 
-export const getAllUsers = async () => {
-    return await prisma.user.findMany({
-        orderBy: { createdAt: 'desc' }
-    });
+export const getAllUsers = async (page = 1, limit = 20) => {
+    const skip = (page - 1) * limit;
+    const [users, total] = await Promise.all([
+        prisma.user.findMany({
+            skip,
+            take: limit,
+            orderBy: { createdAt: 'desc' }
+        }),
+        prisma.user.count()
+    ]);
+
+    return {
+        data: users,
+        meta: {
+            total,
+            page,
+            limit,
+            totalPages: Math.ceil(total / limit)
+        }
+    };
 };
 
-export const getAllDrivers = async () => {
-    const drivers = await prisma.driver.findMany({
-        include: {
-            user: {
-                select: {
-                    id: true,
-                    fullName: true,
-                    phone: true,
-                    email: true,
-                }
-            },
-            DriverRank: true,
-            documents: {
-                include: {
-                    documentType: true
-                }
-            },
-            vehicles: true,
-            _count: {
-                select: {
-                    trips: {
-                        where: { status: 'completed' }
+export const getAllDrivers = async (page = 1, limit = 20) => {
+    const skip = (page - 1) * limit;
+    
+    // 1. Lấy danh sách tài xế phân trang
+    const [drivers, total] = await Promise.all([
+        prisma.driver.findMany({
+            skip,
+            take: limit,
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        fullName: true,
+                        phone: true,
+                        email: true,
                     }
-                }
+                },
+                DriverRank: true,
+                documents: {
+                    include: {
+                        documentType: true
+                    }
+                },
+                vehicles: true
+            },
+            orderBy: {
+                createdAt: 'desc'
             }
+        }),
+        prisma.driver.count()
+    ]);
+
+    if (drivers.length === 0) {
+        return { data: [], meta: { total, page, limit, totalPages: 0 } };
+    }
+
+    // 2. Tối ưu hóa: Lấy thống kê cho TẤT CẢ tài xế trong trang hiện tại chỉ bằng 1 truy vấn groupBy
+    const driverIds = drivers.map(d => d.id);
+    
+    const tripStats = await prisma.trip.groupBy({
+        by: ['driverId', 'status'],
+        where: {
+            driverId: { in: driverIds },
+            status: { in: ['completed', 'cancelled'] }
         },
-        orderBy: {
-            createdAt: 'desc'
+        _count: {
+            _all: true
         }
     });
 
-    // Bổ sung thêm đếm số chuyến bị huỷ thủ công (Prisma _count lồng nhau có giới hạn)
-    const driversWithStats = await Promise.all(drivers.map(async (driver) => {
-        const driverId = Number(driver.id);
-        const [completedCount, cancelledCount] = await Promise.all([
-            prisma.trip.count({ where: { driverId: driverId, status: 'completed' } }),
-            prisma.trip.count({ where: { driverId: driverId, status: 'cancelled' } })
-        ]);
+    // Chuyển đổi tripStats sang dạng Map để lookup nhanh hơn
+    // Map<driverId, { completed: number, cancelled: number }>
+    const statsMap = new Map();
+    tripStats.forEach(stat => {
+        const id = stat.driverId;
+        if (!statsMap.has(id)) {
+            statsMap.set(id, { completed: 0, cancelled: 0 });
+        }
+        const current = statsMap.get(id);
+        if (stat.status === 'completed') current.completed = stat._count._all;
+        if (stat.status === 'cancelled') current.cancelled = stat._count._all;
+    });
 
-        const totalWork = completedCount + cancelledCount;
+    // 3. Ghép stats vào driver data
+    const driversWithStats = drivers.map(driver => {
+        const stats = statsMap.get(driver.id) || { completed: 0, cancelled: 0 };
+        const totalWork = stats.completed + stats.cancelled;
         let rate = 100;
         
         if (totalWork > 0) {
-            rate = (completedCount / totalWork) * 100;
+            rate = (stats.completed / totalWork) * 100;
         } else if (driver.totalTrips > 0) {
-            rate = 100; // Giả định hoàn thành tốt nếu có số liệu cũ mà không có record Trip
+            rate = 100;
         }
 
         return {
@@ -113,22 +158,52 @@ export const getAllDrivers = async () => {
             documents: driver.documents || [],
             user: driver.user,
             stats: {
-                completed: completedCount,
-                cancelled: cancelledCount,
+                completed: stats.completed,
+                cancelled: stats.cancelled,
                 completionRate: Math.round(rate)
             }
         };
-    }));
+    });
 
-    return driversWithStats;
+    return {
+        data: driversWithStats,
+        meta: {
+            total,
+            page,
+            limit,
+            totalPages: Math.ceil(total / limit)
+        }
+    };
 };
 
-export const updateDriverStatus = async (id, status, reason = null) => {
+export const updateDriverStatus = async (id, status, reason = null, reviewedById = null) => {
+    const driverId = parseInt(id);
     const updatedDriver = await prisma.driver.update({
-        where: { id: parseInt(id) },
+        where: { id: driverId },
         data: { status, reason },
         include: { user: true }
     });
+
+    // TỰ ĐỘNG DUYỆT/TỪ CHỐI TẤT CẢ GIẤY TỜ VÀ PHƯƠNG TIỆN ĐANG CHỜ
+    if (status === 'approved' || status === 'rejected') {
+        const itemStatus = status === 'approved' ? 'approved' : 'rejected';
+        
+        // Cập nhật giấy tờ
+        await prisma.driverDocument.updateMany({
+            where: { driverId: driverId, status: 'pending' },
+            data: { 
+                status: itemStatus,
+                reviewedById: reviewedById ? parseInt(reviewedById) : null,
+                reviewedAt: status === 'approved' ? new Date() : null
+            }
+        });
+
+        // Cập nhật phương tiện
+        await prisma.driverVehicle.updateMany({
+            where: { driverId: driverId, status: 'pending' },
+            data: { status: itemStatus }
+        });
+    }
 
     // Nếu duyệt tài xế, tự động chuyển role user sang Driver (roleId = 2)
     if (status === 'approved') {
@@ -155,8 +230,22 @@ export const updateDriverStatus = async (id, status, reason = null) => {
     }
 
     // XÓA CACHE PROFILE ĐỂ APP CẬP NHẬT QUYỀN HẠN MỚI TỨC THÌ
-    const { invalidateProfileCache } = await import('./auth.services.js');
     await invalidateProfileCache(updatedDriver.userId);
+
+    // PHÁT SỰ KIỆN SOCKET ĐỂ APP TỰ ĐỘNG REFETCH
+    try {
+        const io = getIO();
+        if (io) {
+            io.to(`user_${updatedDriver.userId}`).emit('user:profile_updated', {
+                userId: updatedDriver.userId,
+                status: status,
+                roleId: status === 'approved' ? 2 : undefined
+            });
+            console.log(`[SOCKET] Emitted user:profile_updated to user_${updatedDriver.userId}`);
+        }
+    } catch (err) {
+        console.error('[SOCKET_ERROR] Failed to emit profile update:', err);
+    }
 
     return updatedDriver;
 };
@@ -403,29 +492,46 @@ export const updateSystemConfig = async (key, data) => {
 /**
  * Lấy tất cả các chuyến đi cho Admin quản lý
  */
-export const getAllTrips = async () => {
-    return await prisma.trip.findMany({
-        include: {
-            customer: {
-                select: {
-                    id: true,
-                    fullName: true,
-                    avatarUrl: true,
-                }
+export const getAllTrips = async (page = 1, limit = 20) => {
+    const skip = (page - 1) * limit;
+    
+    const [trips, total] = await Promise.all([
+        prisma.trip.findMany({
+            skip,
+            take: limit,
+            include: {
+                customer: {
+                    select: {
+                        id: true,
+                        fullName: true,
+                        avatarUrl: true,
+                    }
+                },
+                driver: {
+                    select: {
+                        id: true,
+                        fullName: true,
+                        avatarUrl: true,
+                    }
+                },
+                payments: true,
             },
-            driver: {
-                select: {
-                    id: true,
-                    fullName: true,
-                    avatarUrl: true,
-                }
-            },
-            payments: true,
-        },
-        orderBy: {
-            createdAt: 'desc'
+            orderBy: {
+                createdAt: 'desc'
+            }
+        }),
+        prisma.trip.count()
+    ]);
+
+    return {
+        data: trips,
+        meta: {
+            total,
+            page,
+            limit,
+            totalPages: Math.ceil(total / limit)
         }
-    });
+    };
 };
 
 /**

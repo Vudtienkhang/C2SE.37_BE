@@ -56,3 +56,18 @@ export const resolveAlert = async (req, res) => {
     res.status(500).json({ success: false, message: 'Lỗi khi xác nhận xử lý vụ việc' });
   }
 };
+
+export const getPendingCount = async (req, res) => {
+  try {
+    if (!prisma.sOSAlert) {
+      return res.json({ success: true, count: 0 });
+    }
+    const count = await prisma.sOSAlert.count({
+      where: { status: 'active' }
+    });
+    res.json({ success: true, count });
+  } catch (error) {
+    console.error('[SOS] Error counting alerts:', error);
+    res.json({ success: true, count: 0 }); // Fallback to 0 instead of error
+  }
+};

@@ -7,7 +7,8 @@ import * as driverScoreService from '../services/driver-score.service.js';
 export const getEarnings = async (req, res) => {
   try {
     const userId = req.user.id;
-    const stats = await driverService.getDriverEarningsStats(userId);
+    const { startDate, endDate } = req.query;
+    const stats = await driverService.getDriverEarningsStats(userId, startDate, endDate);
     res.json(stats);
   } catch (error) {
     console.error('[DRIVER CONTROLLER] Error fetching earnings:', error);

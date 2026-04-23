@@ -76,6 +76,8 @@ model Notification {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([type])
+  @@index([createdAt])
 }
 
 model Customer {
@@ -143,7 +145,7 @@ model Driver {
   trips                  Trip[]
   commissions            TripCommission[]
   tips                   TripTip[]
-  onlineSessions         OnlineSession[]
+  onlineSessions       OnlineSession[]
   tripOffers             TripOffer[]
 }
 
@@ -248,6 +250,8 @@ model Trip {
 
   @@index([customerId])
   @@index([driverId])
+  @@index([status])
+  @@index([createdAt])
 }
 
 model TripFeeBreakdown {
@@ -392,6 +396,7 @@ model Message {
   sender         User         @relation(fields: [senderId], references: [id])
 
   @@index([conversationId])
+  @@index([createdAt])
 }
 
 model Review {

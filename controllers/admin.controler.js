@@ -68,10 +68,12 @@ export const logoutController = async (req, res) => {
 
 export const getAllUsers = async (req, res) => {
     try {
-        const users = await authAdmin.getAllUsers();
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 20;
+        const result = await authAdmin.getAllUsers(page, limit);
         return res.status(200).json({
             success: true,
-            data: users
+            ...result
         });
     } catch (error) {
         console.error('Lỗi getAllUsers:', error);
@@ -81,10 +83,12 @@ export const getAllUsers = async (req, res) => {
 
 export const getAllDrivers = async (req, res) => {
     try {
-        const drivers = await authAdmin.getAllDrivers();
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 20;
+        const result = await authAdmin.getAllDrivers(page, limit);
         return res.status(200).json({
             success: true,
-            data: drivers
+            ...result
         });
     } catch (error) {
         console.error('Lỗi getAllDrivers:', error);
@@ -95,8 +99,8 @@ export const getAllDrivers = async (req, res) => {
 export const updateDriverStatus = async (req, res) => {
     try {
         const { id } = req.params;
-        const { status, reason } = req.body;
-        const driver = await authAdmin.updateDriverStatus(id, status, reason);
+        const { status, reason, reviewedById } = req.body;
+        const driver = await authAdmin.updateDriverStatus(id, status, reason, reviewedById);
         return res.status(200).json({
             success: true,
             message: 'Cập nhật trạng thái tài xế thành công',
@@ -265,10 +269,12 @@ export const updateSystemConfigController = async (req, res) => {
 
 export const getAllTrips = async (req, res) => {
     try {
-        const trips = await authAdmin.getAllTrips();
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 20;
+        const result = await authAdmin.getAllTrips(page, limit);
         return res.status(200).json({
             success: true,
-            data: trips
+            ...result
         });
     } catch (error) {
         console.error('Lỗi getAllTrips:', error);

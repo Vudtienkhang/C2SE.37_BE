@@ -1,4 +1,12 @@
+import { Worker } from 'bullmq';
+import redis from '../lib/redis.js';
+import prisma from '../prisma/prisma.js';
 import logger from '../lib/logger.js';
+import * as socketService from './socket.service.js';
+import * as authAdminService from './admin.service.js';
+import { invalidateProfileCache } from './auth.services.js';
+import { updateDriverScore } from './driver-score.service.js';
+
 
 logger.info('[WORKER] Trip Tasks Worker initialized');
 
@@ -8,7 +16,7 @@ logger.info('[WORKER] Trip Tasks Worker initialized');
 const worker = new Worker('trip-tasks', async (job) => {
   const type = job.name;
   const data = job.data;
-  logger.info({ jobId: job.id, type }, '[WORKER] Processing job');
+  logger.debug({ jobId: job.id, type }, '[WORKER] Processing job');
 
   try {
     switch (type) {
@@ -31,8 +39,10 @@ const worker = new Worker('trip-tasks', async (job) => {
     logger.error(error, `[WORKER] Error processing job ${job.id}`);
     throw error; // Để BullMQ tự động retry nếu cần
   }
-}, {
-  connection: redis
+}, { 
+  connection: redis,
+  removeOnComplete: { count: 100 },
+  removeOnFail: { count: 1000 }
 });
 
 /**
@@ -61,7 +71,7 @@ async function processTripAcceptance(data) {
   const passengerId = parseInt(rawPassengerId);
   const voucherId = rawVoucherId ? parseInt(rawVoucherId) : null;
 
-  logger.info({ tripId, paymentMethod, finalPrice, discountAmount }, '[PROCESS_TRIP_ACCEPTANCE] Started');
+  logger.debug({ tripId, paymentMethod, finalPrice, discountAmount }, '[PROCESS_TRIP_ACCEPTANCE] Started');
 
   await prisma.$transaction(async (tx) => {
     // 1. Thanh toán bằng ví (nếu có)
@@ -133,7 +143,7 @@ async function processTripAcceptance(data) {
  */
 async function processTripCompletion(data) {
   const { tripId, driverId, finalPrice: finalPriceFromJob, paymentMethod: methodFromJob } = data;
-  logger.info({ tripId, driverId }, '[WORKER] Starting PROCESS_TRIP_COMPLETION');
+  logger.debug({ tripId, driverId }, '[WORKER] Starting PROCESS_TRIP_COMPLETION');
 
   let tripResult = null;
 
@@ -202,7 +212,7 @@ async function processTripCompletion(data) {
       const originalPrice = baseFare + surcharges + systemFee;
       const discountAmount = Math.max(0, originalPrice - finalPrice);
 
-      logger.info({ 
+      logger.debug({ 
         tripId, method, baseFare, surcharges, systemFee, driverEarnings, commissionAmount 
       }, '[COMPLETION_LOG] Computed values');
 
@@ -272,10 +282,12 @@ async function processTripCompletion(data) {
       const finalDriverId = driverId || tripResult.driverId; 
 
       // 5. CỘNG ĐIỂM HOÀN THÀNH CHUYẾN ĐI & THƯỞNG
+      logger.debug({ driverId: finalDriverId, tripId }, '[WORKER] Updating driver score for completion');
       await updateDriverScore(finalDriverId, 'TRIP_COMPLETED', tripId).catch(e => logger.error(e, '[SCORE ERROR]'));
 
       // Thưởng đường dài (> 15km)
       if (tripResult.distanceKm > 15) {
+        logger.info({ driverId: finalDriverId, tripId }, '[WORKER] Applying LONG_TRIP_BONUS');
         await updateDriverScore(finalDriverId, 'LONG_TRIP_BONUS', tripId).catch(e => logger.error(e, '[SCORE ERROR]'));
       }
 
@@ -329,12 +341,19 @@ async function processTripCompletion(data) {
       });
       
       if (finalWallet) {
-        logger.info({ userId: tripResult.driver.userId }, '[WORKER] Emitting wallet:updated');
+        logger.debug({ userId: tripResult.driver.userId }, '[WORKER] Emitting wallet:updated');
         
         // Clear Driver Profile Cache (Redis)
         await invalidateProfileCache(tripResult.driver.userId);
 
         socketService.emitToUser(tripResult.driver.userId, 'wallet:updated', { 
+          balance: finalWallet.balance 
+        });
+
+        // THÔNG BÁO CHO ADMIN
+        socketService.emitToAdmins('admin:wallet_updated', { 
+          driverId: tripResult.driverId, 
+          userId: tripResult.driver.userId,
           balance: finalWallet.balance 
         });
       }
@@ -369,7 +388,7 @@ async function processReviewScore(data) {
  */
 async function processTripCancellation(data) {
   const { tripId, driverId, cancelledBy } = data;
-  logger.info({ tripId, cancelledBy }, '[WORKER] Starting PROCESS_TRIP_CANCELLATION');
+  logger.debug({ tripId, cancelledBy }, '[WORKER] Starting PROCESS_TRIP_CANCELLATION');
 
   // Fetch trạng thái hiện tại để kiểm tra
   const trip = await prisma.trip.findUnique({
@@ -459,6 +478,7 @@ async function processTripCancellation(data) {
 
     // 2. Trừ điểm hủy chuyến (chỉ khi tài xế huỷ)
     if (driverId && cancelledBy === 'driver') {
+      logger.debug({ driverId, tripId }, '[WORKER] Deducting score for driver cancellation');
       await updateDriverScore(driverId, 'TRIP_CANCELLED', tripId);
       
       // Kiểm tra lại hạng (có thể bị hạ hạng nếu điểm xuống thấp)
@@ -470,6 +490,7 @@ async function processTripCancellation(data) {
     logger.error(error, `[WORKER ERROR] Cancellation tasks failed for Trip #${tripId}`);
   }
 }
+
 
 worker.on('completed', (job) => {
   logger.info({ jobId: job.id, name: job.name }, '[WORKER SUCCESS] Job processed successfully');
