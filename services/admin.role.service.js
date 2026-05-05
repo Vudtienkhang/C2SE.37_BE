@@ -126,7 +126,7 @@ export const getUserProfile = async (userId) => {
     return {
         fullName: user.fullName,
         email: user.email,
-        roleName: user.role.name,
+        roleName: user.role?.name || 'N/A',
         avatarUrl: user.avatarUrl
     };
 };
@@ -136,7 +136,7 @@ export const getUserProfile = async (userId) => {
  */
 export const getUserPermissions = async (userId) => {
     const user = await prisma.user.findUnique({
-        where: { id: userId },
+        where: { id: parseInt(userId) },
         include: {
             role: {
                 include: {
@@ -148,8 +148,8 @@ export const getUserPermissions = async (userId) => {
         }
     });
 
-    if (!user) return [];
-    return user.role.permissions.map(rp => rp.permission.code);
+    if (!user || !user.role) return [];
+    return user.role.permissions.map(rp => rp.permission?.code).filter(Boolean);
 };
 
 /**

@@ -6,6 +6,7 @@ import * as adminStatsController from '../controllers/admin.stats.controller.js'
 import * as adminDriverStatsController from '../controllers/admin.driver-stats.controller.js';
 import * as adminRevenueController from '../controllers/admin.revenue.controller.js';
 import * as adminRoleController from '../controllers/admin.role.controller.js';
+import * as reviewController from '../controllers/review.controller.js';
 import { verifyAdminToken, checkPermission } from '../middlewares/auth.middleware.js';
 
 const router = Router();
@@ -59,6 +60,9 @@ router.get('/revenue/transactions', verifyAdminToken, checkPermission('REVENUE_V
 // --- Quản lý chuyến đi ---
 router.get('/trips', verifyAdminToken, checkPermission('TRIPS_VIEW'), adminController.getAllTrips);
 router.get('/trips/:id', verifyAdminToken, checkPermission('TRIPS_VIEW'), adminController.getTripDetail);
+
+// --- Quản lý đánh giá ---
+router.get('/reviews', verifyAdminToken, checkPermission('TRIPS_VIEW'), reviewController.getReviews);
 
 // --- Quản lý hạng tài xế ---
 router.get('/driver-ranks', verifyAdminToken, checkPermission('DRIVERS_RANKS_MANAGE'), adminController.getDriverRanksController);

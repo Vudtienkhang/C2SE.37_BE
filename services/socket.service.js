@@ -244,7 +244,9 @@ export const initSocket = (server) => {
       // Gửi vào room driver
       io.to(roomName).emit('trip:new_request', {
         requestId,
-        ...pending.data
+        ...pending.data,
+        price: pending.data.price, // Giữ giá gốc để tài xế thấy đúng thu nhập (80% của giá gốc)
+        discountAmount: pending.data.discountAmount || 0
       });
 
       // 3. Đặt timeout 30 giây
@@ -364,11 +366,11 @@ export const initSocket = (server) => {
             isBusy: false,
             status: 'approved',
             // Lọc theo loại hình dịch vụ tài xế đăng ký
-            ...(serviceType === 'DRIVER_FOR_HIRE' ? {
-              serviceType: { in: ['DRIVER_FOR_HIRE', 'BOTH'] }
+            ...(serviceType === 'FOR_HIRE' ? {
+              serviceType: { in: ['FOR_HIRE', 'BOTH'] }
             } : {
-              // Đối với Taxi (RIDE_HAILING / FOR_HIRE)
-              serviceType: { in: ['FOR_HIRE', 'RIDE_HAILING', 'BOTH'] },
+              // Đối với Taxi (RIDE_HAILING) - Yêu cầu có xe phù hợp
+              serviceType: { in: ['RIDE_HAILING', 'BOTH'] },
               vehicles: {
                 some: { 
                   type: vehicleType ? vehicleType.toLowerCase() : undefined,
@@ -573,46 +575,65 @@ export const initSocket = (server) => {
             update: {},
             create: { userId: pending.data.passengerId }
           });
-
-          // 2.3 Tạo Trip và các bản ghi liên quan
-          const newTrip = await tx.trip.create({
-            data: {
-              customerId: customer.id,
-              driverId: parsedDriverId,
-              pickupAddress: pending.data.pickupAddress,
-              pickupLat: parseFloat(pending.data.pickupLat),
-              pickupLng: parseFloat(pending.data.pickupLng),
-              dropoffAddress: pending.data.dropoffAddress,
-              dropoffLat: parseFloat(pending.data.dropoffLat),
-              dropoffLng: parseFloat(pending.data.dropoffLng),
-              distanceKm: parseFloat(pending.data.distance),
-              durationEstimateMin: parseInt(pending.data.duration),
-              priceEstimate: parseFloat(pending.data.price),
-              routePolyline: pending.data.routePolyline,
-              vehicleId: pending.data.vehicleId ? parseInt(pending.data.vehicleId) : null,
-              serviceType: pending.data.serviceType || 'FOR_HIRE',
-              status: 'accepted',
-              conversation: { create: {} },
-              feeBreakdowns: {
-                create: [
-                   { feeType: 'base_fare', amount: pending.data.baseFare },
-                   { feeType: 'surcharge_night', amount: pending.data.surchargeBreakdown.night },
-                   { feeType: 'surcharge_rush_hour', amount: pending.data.surchargeBreakdown.rushHour },
-                   { feeType: 'surcharge_holiday', amount: pending.data.surchargeBreakdown.holiday },
-                   { feeType: 'surcharge_weather', amount: pending.data.surchargeBreakdown.weather },
-                   { feeType: 'system_fee', amount: pending.data.systemFee },
-                ]
-              }
-            },
-            include: {
-              driver: { 
-                include: { 
-                  user: { select: { fullName: true, phone: true, avatarUrl: true } },
-                  vehicles: { where: { isDefault: true } }
+          // 2.3 Tạo mới hoặc Cập nhật Trip (Xử lý Re-dispatch)
+          let newTrip;
+          if (pending.data.isRedispatch && pending.data.originalTripId) {
+            newTrip = await tx.trip.update({
+              where: { id: pending.data.originalTripId },
+              data: {
+                driverId: parsedDriverId,
+                status: 'accepted',
+                vehicleId: pending.data.vehicleId ? parseInt(pending.data.vehicleId) : null,
+              },
+              include: { 
+                driver: { 
+                  include: { 
+                    user: { select: { fullName: true, phone: true, avatarUrl: true } },
+                    vehicles: { where: { isDefault: true } }
+                  } 
                 } 
               }
-            }
-          });
+            });
+          } else {
+            newTrip = await tx.trip.create({
+              data: {
+                customerId: customer.id,
+                driverId: parsedDriverId,
+                pickupAddress: pending.data.pickupAddress,
+                pickupLat: parseFloat(pending.data.pickupLat),
+                pickupLng: parseFloat(pending.data.pickupLng),
+                dropoffAddress: pending.data.dropoffAddress,
+                dropoffLat: parseFloat(pending.data.dropoffLat),
+                dropoffLng: parseFloat(pending.data.dropoffLng),
+                distanceKm: parseFloat(pending.data.distance),
+                durationEstimateMin: parseInt(pending.data.duration),
+                priceEstimate: finalPrice,
+                routePolyline: pending.data.routePolyline,
+                vehicleId: pending.data.vehicleId ? parseInt(pending.data.vehicleId) : null,
+                serviceType: pending.data.serviceType || 'FOR_HIRE',
+                status: 'accepted',
+                conversation: { create: {} },
+                feeBreakdowns: {
+                  create: [
+                    { feeType: 'base_fare', amount: pending.data.baseFare },
+                    { feeType: 'surcharge_night', amount: pending.data.surchargeBreakdown.night },
+                    { feeType: 'surcharge_rush_hour', amount: pending.data.surchargeBreakdown.rushHour },
+                    { feeType: 'surcharge_holiday', amount: pending.data.surchargeBreakdown.holiday },
+                    { feeType: 'surcharge_weather', amount: pending.data.surchargeBreakdown.weather },
+                    { feeType: 'system_fee', amount: pending.data.systemFee },
+                  ]
+                }
+              },
+              include: { 
+                driver: { 
+                  include: { 
+                    user: { select: { fullName: true, phone: true, avatarUrl: true } },
+                    vehicles: { where: { isDefault: true } }
+                  } 
+                } 
+              }
+            });
+          }
 
           // 2.4 Cập nhật trạng thái tài xế bận
           await tx.driver.update({
@@ -1104,6 +1125,221 @@ export const initSocket = (server) => {
       } catch (err) {
         logger.error(err, '[ADMIN DISPATCH ERROR]');
         socket.emit('admin:error', { message: 'Lỗi hệ thống khi điều xe thay thế.' });
+      }
+    });
+
+    // ==========================================
+    // --- SAFEWAY NOW (Ghép cặp tại chỗ) ---
+    // ==========================================
+
+    // 1. Khách hàng yêu cầu mã PIN/QR
+    socket.on('trip:request_now_code', async (data) => {
+      try {
+        const { 
+          passengerId, passengerName, passengerAvatar,
+          pickupAddress, pickupLat, pickupLng, 
+          dropoffAddress, dropoffLat, dropoffLng, 
+          price, distance, duration, serviceType, vehicleType 
+        } = data;
+        
+        // Sinh mã PIN 6 số
+        const pinCode = Math.floor(100000 + Math.random() * 900000).toString();
+        
+        const pairingData = {
+          passengerId,
+          passengerName,
+          passengerAvatar,
+          pickupAddress,
+          pickupLat,
+          pickupLng,
+          dropoffAddress,
+          dropoffLat,
+          dropoffLng,
+          price,
+          distance,
+          duration,
+          serviceType, // FOR_HIRE hoặc RIDE_HAILING
+          vehicleType, // bike, car_4, car_7...
+          createdAt: Date.now()
+        };
+
+        const pairingKey = `now_pairing:${pinCode}`;
+        const userKey = `now_user_pairing:${passengerId}`;
+
+        // Lưu vào Redis (Hết hạn sau 5 phút)
+        await redis.set(pairingKey, JSON.stringify(pairingData), 'EX', 300);
+        await redis.set(userKey, pinCode, 'EX', 300);
+
+        logger.info({ pinCode, passengerId }, '[SAFEWAY NOW] PIN Generated');
+        socket.emit('trip:now_code_generated', { pinCode });
+
+      } catch (error) {
+        logger.error(error, '[SAFEWAY NOW] Error generating PIN');
+        socket.emit('trip:error', { message: 'Lỗi khi tạo mã kết nối tại chỗ.' });
+      }
+    });
+
+    // 2. Tài xế xác thực mã PIN/QR
+    socket.on('trip:verify_now_code', async (data) => {
+      try {
+        const { pinCode, driverId, driverLat, driverLng } = data;
+        const pairingKey = `now_pairing:${pinCode}`;
+
+        // 1. Tối ưu: Lấy pairingData và driverData song song
+        const [pairingDataStr, driver] = await Promise.all([
+          redis.get(pairingKey),
+          prisma.driver.findUnique({
+            where: { id: parseInt(driverId) },
+            include: { vehicles: { where: { isDefault: true } } }
+          })
+        ]);
+
+        if (!pairingDataStr) {
+          return socket.emit('trip:error', { message: 'Mã kết nối không hợp lệ hoặc đã hết hạn.' });
+        }
+        if (!driver) {
+          return socket.emit('trip:error', { message: 'Không tìm thấy thông tin tài xế' });
+        }
+
+        const pairingData = JSON.parse(pairingDataStr);
+
+        // Kiểm tra quyền dịch vụ (Lái hộ vs Taxi)
+        if (pairingData.serviceType === 'FOR_HIRE' && driver.serviceType === 'RIDE_HAILING') {
+          return socket.emit('trip:error', { message: 'Mã này dành cho dịch vụ Lái hộ. Bạn không có quyền nhận.' });
+        }
+        if (pairingData.serviceType === 'RIDE_HAILING' && driver.serviceType === 'FOR_HIRE') {
+          return socket.emit('trip:error', { message: 'Mã này dành cho dịch vụ Đặt xe. Bạn không có quyền nhận.' });
+        }
+
+        // Kiểm tra loại xe (Xe máy vs Ô tô)
+        const driverVehicle = driver.vehicles?.[0] || await prisma.driverVehicle.findFirst({ where: { driverId: driver.id, isDefault: true } });
+        
+        // Chỉ kiểm tra loại xe nghiêm ngặt đối với dịch vụ Đặt xe (RIDE_HAILING)
+        if (pairingData.serviceType === 'RIDE_HAILING' && pairingData.vehicleType && driverVehicle) {
+          if (driverVehicle.type !== pairingData.vehicleType) {
+            let typeName = "không xác định";
+            if (pairingData.vehicleType === 'bike') typeName = 'Xe máy';
+            else if (pairingData.vehicleType === 'car_4') typeName = 'Xe ô tô 4 chỗ';
+            else if (pairingData.vehicleType === 'car_7') typeName = 'Xe ô tô 7 chỗ';
+
+            return socket.emit('trip:error', { 
+              message: `Mã này dành cho dịch vụ ${typeName}. Xe của bạn (${driverVehicle.type}) không phù hợp.` 
+            });
+          }
+        }
+
+        // 2. Kiểm tra khoảng cách an toàn (Dưới 200m)
+        if (driverLat && driverLng && pairingData.pickupLat && pairingData.pickupLng) {
+          const distance = Math.sqrt(
+            Math.pow(driverLat - pairingData.pickupLat, 2) + 
+            Math.pow(driverLng - pairingData.pickupLng, 2)
+          ) * 111000;
+
+          if (distance > 200) {
+            return socket.emit('trip:error', { message: 'Bạn đang ở quá xa khách hàng để thực hiện kết nối tại chỗ.' });
+          }
+        }
+
+        const parsedDriverId = parseInt(driverId);
+
+        // Tạo Trip chính thức trong DB
+        const trip = await prisma.$transaction(async (tx) => {
+          // Tối ưu: Upsert customer trước
+          const customer = await tx.customer.upsert({
+            where: { userId: pairingData.passengerId },
+            update: {},
+            create: { userId: pairingData.passengerId }
+          });
+
+          const newTrip = await tx.trip.create({
+            data: {
+              customerId: customer.id,
+              driverId: parsedDriverId,
+              pickupAddress: pairingData.pickupAddress,
+              pickupLat: parseFloat(pairingData.pickupLat),
+              pickupLng: parseFloat(pairingData.pickupLng),
+              dropoffAddress: pairingData.dropoffAddress,
+              dropoffLat: parseFloat(pairingData.dropoffLat),
+              dropoffLng: parseFloat(pairingData.dropoffLng),
+              distanceKm: parseFloat(pairingData.distance),
+              durationEstimateMin: parseInt(pairingData.duration),
+              priceEstimate: parseFloat(pairingData.price),
+              serviceType: pairingData.serviceType || 'FOR_HIRE',
+              status: 'accepted',
+              conversation: { create: {} }
+            },
+            include: {
+              driver: { 
+                include: { 
+                  user: { select: { fullName: true, phone: true, avatarUrl: true } },
+                  vehicles: { where: { isDefault: true } }
+                } 
+              }
+            }
+          });
+
+          // Cập nhật tài xế bận
+          await tx.driver.update({
+            where: { id: parsedDriverId },
+            data: { isBusy: true }
+          });
+
+          return newTrip;
+        }, { maxWait: 2000, timeout: 5000 }); // Giảm timeout để fail fast nếu DB nghẽn
+
+        // Tối ưu: Song song hóa các tác vụ sau khi tạo trip thành công
+        await Promise.all([
+          redis.del(pairingKey),
+          redis.del(`now_user_pairing:${pairingData.passengerId}`)
+        ]);
+
+        // Phản hồi cho tài xế trước để giảm lag UI
+        socket.emit('trip:accept_success', { tripId: trip.id, trip });
+        socket.join(`trip_${trip.id}`);
+
+        // Các tác vụ nền không chặn luồng chính
+        (async () => {
+          try {
+            // QUAN TRỌNG: Đẩy vào queue xử lý tài chính (Fix bug thiếu hụt so với luồng thường)
+            tripTasksQueue.add('PROCESS_TRIP_ACCEPTANCE', {
+              tripId: trip.id,
+              passengerId: pairingData.passengerId,
+              paymentMethod: 'CASH', // Safeway Now mặc định CASH hoặc xử lý sau
+              finalPrice: parseFloat(pairingData.price),
+              isSafewayNow: true
+            });
+
+            // Thông báo cho khách hàng qua phòng riêng
+            io.to(`user_${pairingData.passengerId}`).emit('trip:accepted', {
+              tripId: trip.id,
+              driverName: trip.driver.user.fullName,
+              driverPhone: trip.driver.user.phone,
+              vehiclePlate: trip.driver.vehicles[0]?.plateNumber || "Đang cập nhật",
+              serviceType: trip.serviceType
+            });
+
+            io.emit('admin:trip_updated', { tripId: trip.id, type: 'new_trip' });
+            logger.info({ tripId: trip.id, pinCode }, '[SAFEWAY NOW] Connection success');
+          } catch (e) {
+            logger.error(e, '[SAFEWAY NOW] Error in background tasks');
+          }
+        })();
+
+      } catch (error) {
+        logger.error(error, '[SAFEWAY NOW] Verify error');
+        socket.emit('trip:error', { message: 'Lỗi khi kết nối chuyến đi.' });
+      }
+    });
+
+    // 3. Khách hàng hủy yêu cầu PIN
+    socket.on('trip:cancel_now_code', async (data) => {
+      const { passengerId } = data;
+      const userKey = `now_user_pairing:${passengerId}`;
+      const pinCode = await redis.get(userKey);
+      if (pinCode) {
+        await redis.del(`now_pairing:${pinCode}`);
+        await redis.del(userKey);
+        logger.info({ passengerId, pinCode }, '[SAFEWAY NOW] PIN Cancelled by user');
       }
     });
 

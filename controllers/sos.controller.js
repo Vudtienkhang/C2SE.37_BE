@@ -45,8 +45,7 @@ export const resolveAlert = async (req, res) => {
     const alert = await prisma.sOSAlert.update({
       where: { id: alertId },
       data: {
-        status: 'resolved',
-        resolvedAt: new Date()
+        status: 'resolved'
       }
     });
 

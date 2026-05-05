@@ -74,10 +74,16 @@ export const createStaff = async (req, res) => {
 export const getMyPermissions = async (req, res) => {
     try {
         const userId = req.admin.id;
+        console.log('[PERMISSIONS] Fetching for userId:', userId);
+        
         const [permissions, user] = await Promise.all([
             roleService.getUserPermissions(userId),
             roleService.getUserProfile(userId)
         ]);
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'Không tìm thấy thông tin người dùng.' });
+        }
 
         res.status(200).json({ 
             success: true, 
@@ -87,6 +93,7 @@ export const getMyPermissions = async (req, res) => {
             } 
         });
     } catch (error) {
+        console.error('[GET MY PERMISSIONS ERROR]', error);
         res.status(500).json({ success: false, message: error.message });
     }
 };

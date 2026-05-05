@@ -6,7 +6,8 @@ import {
   uploadChatImage, 
   uploadWithdrawalProof, 
   uploadDriverAvatar,
-  uploadAcademyContent
+  uploadAcademyContent,
+  uploadTripInspection
 } from "../controllers/upload.controller.js";
 
 const router = Router();
@@ -31,4 +32,7 @@ router.post('/chat/:tripId/image', upload.single('image'), uploadChatImage);
 // Route POST /api/auth/upload/driver-avatar/:userId
 router.post('/driver-avatar/:userId', upload.single('avatar'), uploadDriverAvatar);
 
-export default router;
+// Route POST /api/auth/upload/trip-inspection/:tripId
+router.post('/trip-inspection/:tripId', upload.single('video'), uploadTripInspection);
+
+export default router;

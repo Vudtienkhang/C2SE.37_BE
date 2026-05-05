@@ -42,6 +42,7 @@ import reviewRouter from './routers/review.router.js';
 import disputeRouter from './routers/dispute.router.js';
 import sosRouter from './routers/sos.router.js';
 import withdrawalRouter from './routers/withdrawal.router.js';
+import relativeRouter from './routers/relative.router.js';
 
 
 app.use('/api/auth', authRouter);
@@ -68,6 +69,7 @@ app.use('/api/disputes', disputeRouter);
 app.use('/api/sos', sosRouter);
 app.use('/api/withdrawals', withdrawalRouter);
 app.use('/api/vehicles', vehicleRouter);
+app.use('/api/relatives', relativeRouter);
 
 
 

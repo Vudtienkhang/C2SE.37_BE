@@ -62,6 +62,7 @@ model User {
   voucherUsages           VoucherUsage[]
   wallet                  Wallet?
   withdrawalRequests      WithdrawalRequest[]
+  relatives               Relative[]
 }
 
 model Notification {
@@ -247,6 +248,7 @@ model Trip {
   feeBreakdowns       TripFeeBreakdown[]
   tips                TripTip[]
   voucherUsages       VoucherUsage[]
+  inspection          TripInspection?
 
   @@index([customerId])
   @@index([driverId])
@@ -560,6 +562,18 @@ model SOSAlert {
   trip       Trip      @relation(fields: [tripId], references: [id])
 }
 
+model Relative {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  name      String
+  phone     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
 model KnowledgeQuestion {
   id                 Int                      @id @default(autoincrement())
   moduleId           Int?
@@ -787,6 +801,15 @@ model OnlineSession {
   driver    Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
 
   @@index([driverId])
+}
+
+model TripInspection {
+  id             Int      @id @default(autoincrement())
+  tripId         Int      @unique
+  videoUrl       String
+  createdAt      DateTime @default(now())
+  status         String   @default("pending") // pending, verified
+  trip           Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
 }
 
 model TripOffer {

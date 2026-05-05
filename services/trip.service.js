@@ -76,6 +76,7 @@ export const fetchCurrentTrip = async (userId) => {
       vehicle: true,
       driverVehicle: true,
       payments: true,
+      voucherUsages: true,
       conversation: {
         include: {
           _count: {
@@ -109,6 +110,7 @@ export const fetchTripById = async (tripId) => {
       locationHistory: {
         orderBy: { createdAt: 'asc' }
       },
+      voucherUsages: true,
     },
   });
 };

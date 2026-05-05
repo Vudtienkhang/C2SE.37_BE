@@ -179,4 +179,34 @@ export const uploadAcademyContent = async (req, res) => {
     });
   }
 };
+export const uploadTripInspection = async (req, res) => {
+  try {
+    const { tripId } = req.params;
+    const file = req.file;
 
+    if (!tripId) {
+      return res.status(400).json({ success: false, message: 'Thiếu tripId.' });
+    }
+
+    if (!file) {
+      return res.status(400).json({ success: false, message: 'Không tìm thấy file video.' });
+    }
+
+    const videoUrl = await uploadService.uploadTripInspectionToSupabase(tripId, file.buffer, file.mimetype);
+
+    // Lưu vào database
+    const inspection = await uploadService.saveTripInspection(tripId, videoUrl);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Tải lên video kiểm tra xe thành công',
+      data: inspection,
+    });
+  } catch (error) {
+    console.error('Lỗi uploadTripInspection controller:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Lỗi máy chủ nội bộ',
+    });
+  }
+};

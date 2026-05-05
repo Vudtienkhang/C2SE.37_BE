@@ -33,3 +33,23 @@ export const createReview = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+/**
+ * Lấy danh sách đánh giá (Dành cho Admin)
+ */
+export const getReviews = async (req, res) => {
+  try {
+    const { page, limit, search, rating } = req.query;
+    const result = await reviewService.getReviews({
+      page: parseInt(page) || 1,
+      limit: parseInt(limit) || 10,
+      search: search || '',
+      rating: rating || 'all'
+    });
+
+    res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    console.error('Get reviews error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};

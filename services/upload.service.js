@@ -332,3 +332,55 @@ export const uploadAcademyContentToSupabase = async (fileBuffer, mimeType, origi
   return publicUrlData.publicUrl;
 };
 
+/**
+ * Upload video kiểm tra xe trước khi đi lên Supabase (Bucket: trip_inspections)
+ * @param {number} tripId 
+ * @param {Buffer} fileBuffer 
+ * @param {string} mimeType 
+ * @returns {Promise<string>} - Public URL của video
+ */
+export const uploadTripInspectionToSupabase = async (tripId, fileBuffer, mimeType) => {
+  let ext = 'mp4';
+  if (mimeType.includes('mov')) ext = 'mov';
+  if (mimeType.includes('quicktime')) ext = 'mov';
+  
+  const fileName = `inspection_trip${tripId}_${Date.now()}.${ext}`;
+  
+  const { error } = await supabase.storage
+    .from('trip_inspections')
+    .upload(fileName, fileBuffer, {
+      contentType: mimeType || 'video/mp4',
+      upsert: true,
+    });
+
+  if (error) {
+    console.error('Lỗi upload Trip Inspection Supabase:', error);
+    throw new Error('Lỗi khi tải video kiểm tra xe lên máy chủ.');
+  }
+
+  const { data: publicUrlData } = supabase.storage
+    .from('trip_inspections')
+    .getPublicUrl(fileName);
+
+  return publicUrlData.publicUrl;
+};
+
+/**
+ * Lưu thông tin video kiểm tra xe vào Database
+ * @param {string|number} tripId 
+ * @param {string} videoUrl 
+ */
+export const saveTripInspection = async (tripId, videoUrl) => {
+  const numericTripId = parseInt(tripId, 10);
+  
+  return await prisma.tripInspection.upsert({
+    where: { tripId: numericTripId },
+    update: { videoUrl, status: 'pending' },
+    create: {
+      tripId: numericTripId,
+      videoUrl,
+      status: 'pending',
+    }
+  });
+};
+
