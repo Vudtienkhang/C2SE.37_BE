@@ -6,13 +6,14 @@ import { uploadDisputeEvidenceToSupabase } from '../services/upload.service.js';
  */
 export const createDispute = async (req, res) => {
   try {
-    const { tripId, createdById, reason, description } = req.body;
+    const { tripId, reason, description } = req.body;
+    const createdById = req.user.id; // Lấy ID từ Token để đảm bảo chính xác và bảo mật
     const files = req.files || []; // Nhận mảng file từ multer
 
     if (!tripId || !createdById || !reason) {
       return res.status(400).json({
         success: false,
-        message: 'Thiếu thông tin bắt buộc (tripId, createdById, reason).',
+        message: 'Thiếu thông tin bắt buộc (tripId, reason).',
       });
     }
 
@@ -108,10 +109,11 @@ export const getDisputeDetail = async (req, res) => {
 export const getMyDisputes = async (req, res) => {
   try {
     const userId = req.user.id;
-    console.log(`[DEBUG] Fetching disputes for UserID: ${userId}`);
+    console.log(`[DISPUTE] User #${userId} is fetching their disputes...`);
+    
     const disputes = await disputeService.getDisputesByUser(userId);
 
-    console.log(`[DEBUG] Found ${disputes.length} disputes for UserID: ${userId}`);
+    console.log(`[DISPUTE] Found ${disputes.length} disputes for User #${userId}`);
 
     return res.status(200).json({
       success: true,

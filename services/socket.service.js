@@ -742,7 +742,7 @@ export const initSocket = (server) => {
           'requested': ['accepted', 'cancelled'],
           'accepted': ['arrived', 'cancelled'],
           'arrived': ['started', 'cancelled'],
-          'started': ['completed', 'cancelled']
+          'started': ['completed'] // CHỈ cho phép hoàn thành khi đã bắt đầu di chuyển
         };
 
         if (validTransitions[currentTrip.status] && !validTransitions[currentTrip.status].includes(status)) {
@@ -1228,17 +1228,7 @@ export const initSocket = (server) => {
           }
         }
 
-        // 2. Kiểm tra khoảng cách an toàn (Dưới 200m)
-        if (driverLat && driverLng && pairingData.pickupLat && pairingData.pickupLng) {
-          const distance = Math.sqrt(
-            Math.pow(driverLat - pairingData.pickupLat, 2) + 
-            Math.pow(driverLng - pairingData.pickupLng, 2)
-          ) * 111000;
-
-          if (distance > 200) {
-            return socket.emit('trip:error', { message: 'Bạn đang ở quá xa khách hàng để thực hiện kết nối tại chỗ.' });
-          }
-        }
+        // Bỏ qua kiểm tra khoảng cách GPS theo yêu cầu
 
         const parsedDriverId = parseInt(driverId);
 

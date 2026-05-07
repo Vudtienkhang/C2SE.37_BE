@@ -8,14 +8,14 @@ import { tripTasksQueue } from '../lib/queue.js';
  */
 export const createReview = async (req, res) => {
   try {
-    const { tripId, rating, comment, customerId, driverId } = req.body;
+    const { tripId, rating, comment, customerId, driverId, tipAmount } = req.body;
 
     if (!tripId || !rating || !customerId) {
       return res.status(400).json({ success: false, message: 'Thiếu thông tin đánh giá bắt buộc' });
     }
 
     const result = await reviewService.createReview({
-      tripId, rating, comment, customerId, driverId
+      tripId, rating, comment, customerId, driverId, tipAmount
     });
 
     // TỐI ƯU: Đẩy việc tính điểm thưởng/phạt vào Queue

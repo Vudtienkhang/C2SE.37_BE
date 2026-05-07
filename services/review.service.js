@@ -1,12 +1,13 @@
 import prisma from '../prisma/prisma.js';
 import { getIO } from './socket.service.js';
+import * as tipService from './tip.service.js';
 
 /**
  * Tạo đánh giá và cập nhật rating tài xế
  * @param {Object} reviewData - Dữ liệu đánh giá
  */
 export const createReview = async (reviewData) => {
-  const { tripId, rating, comment, customerId, driverId } = reviewData;
+  const { tripId, rating, comment, customerId, driverId, tipAmount } = reviewData;
 
   return await prisma.$transaction(async (tx) => {
     // 1. Tạo bản ghi Review
@@ -36,16 +37,38 @@ export const createReview = async (reviewData) => {
       });
     }
 
-    // Phát sự kiện cho Admins
+    // 3. Xử lý tiền tip (nếu có)
+    let tipResult = null;
+    if (tipAmount && parseFloat(tipAmount) > 0) {
+      tipResult = await tipService.processTip(tx, {
+        tripId: parseInt(tripId),
+        customerId: parseInt(customerId),
+        driverId: parseInt(driverId),
+        amount: parseFloat(tipAmount)
+      });
+    }
+
+    // Phát sự kiện cho Admins & Driver
     try {
         const io = getIO();
         if (io) io.emit('admin:new_review', { tripId: review.tripId, rating: review.rating });
+        
+        // Thông báo tip cho tài xế nếu thành công
+        if (tipResult && driverId) {
+            const driver = await prisma.driver.findUnique({
+                where: { id: parseInt(driverId) },
+                select: { userId: true }
+            });
+            if (driver) {
+                tipService.notifyDriverTip(driver.userId, parseFloat(tipAmount), parseInt(tripId));
+            }
+        }
     } catch (err) {
         console.warn('Socket emit failed in createReview');
     }
 
-    return review;
-  });
+    return { review, tip: tipResult };
+  }, { maxWait: 5000, timeout: 20000 });
 };
 
 /**
