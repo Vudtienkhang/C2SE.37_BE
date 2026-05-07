@@ -1,13 +1,31 @@
 import prisma from '../prisma/prisma.js';
 
 /**
- * Lấy danh sách khách hàng (có phân trang, tìm kiếm)
+ * @file admin.customer.service.js
+ * @description Service xử lý các nghiệp vụ liên quan đến quản lý khách hàng dành cho Admin.
+ * Bao gồm các chức năng: lấy danh sách, xem chi tiết, cập nhật trạng thái và thống kê.
+ */
+
+/**
+ * Lấy danh sách khách hàng với các tính năng phân trang, tìm kiếm và tính toán tổng chi tiêu.
+ * 
+ * @param {number} [page=1] - Số trang hiện tại (mặc định là 1).
+ * @param {number} [limit=10] - Số lượng bản ghi trên mỗi trang (mặc định là 10).
+ * @param {string} [search=''] - Từ khóa tìm kiếm (theo tên, số điện thoại hoặc email).
+ * @returns {Promise<Object>} Trả về đối tượng chứa thông tin phân trang và danh sách khách hàng đã format.
+ * @property {number} total - Tổng số khách hàng tìm thấy.
+ * @property {number} page - Trang hiện tại.
+ * @property {number} limit - Số lượng bản ghi mỗi trang.
+ * @property {number} totalPages - Tổng số trang.
+ * @property {Array} data - Danh sách khách hàng kèm theo thông tin tổng chuyến đi và tổng chi tiêu.
  */
 export const getAllCustomers = async (page = 1, limit = 10, search = '') => {
+    // Tính toán số lượng bản ghi cần bỏ qua cho phân trang
     const skip = (page - 1) * limit;
 
+    // Cấu hình điều kiện tìm kiếm
     const where = {
-        roleId: 3, // 3 = Customer. 
+        roleId: 3, // 3 tương ứng với vai trò Customer
         OR: search ? [
             { fullName: { contains: search, mode: 'insensitive' } },
             { phone: { contains: search } },
@@ -15,6 +33,7 @@ export const getAllCustomers = async (page = 1, limit = 10, search = '') => {
         ] : undefined,
     };
 
+    // Thực hiện đếm tổng và lấy dữ liệu đồng thời để tối ưu hiệu năng
     const [total, users] = await Promise.all([
         prisma.user.count({ where }),
         prisma.user.findMany({
@@ -24,7 +43,7 @@ export const getAllCustomers = async (page = 1, limit = 10, search = '') => {
             include: {
                 customer: {
                     include: {
-                        trips: { select: { finalPrice: true, id: true } } // Để tính tổng tiền / chuyến đi
+                        trips: { select: { finalPrice: true, id: true } } // Chỉ lấy thông tin cần thiết để tính toán
                     }
                 },
             },
@@ -34,7 +53,7 @@ export const getAllCustomers = async (page = 1, limit = 10, search = '') => {
         }),
     ]);
 
-    // Format dữ liệu trước khi trả về (Tính tổng chuyến đi, tổng chi tiêu)
+    // Định dạng lại dữ liệu: Tính toán tổng số chuyến đi và tổng số tiền đã chi tiêu
     const formattedData = users.map(user => {
         const tripsCount = user.customer?.trips?.length || 0;
         const totalSpent = user.customer?.trips?.reduce((acc, t) => acc + (t.finalPrice || 0), 0) || 0;
@@ -55,9 +74,14 @@ export const getAllCustomers = async (page = 1, limit = 10, search = '') => {
 };
 
 /**
- * Lấy chi tiết 1 khách hàng
+ * Lấy thông tin chi tiết của một khách hàng cụ thể.
+ * 
+ * @param {number|string} userId - ID của người dùng (khách hàng).
+ * @returns {Promise<Object>} Thông tin chi tiết khách hàng bao gồm ví, địa chỉ đã lưu và tổng số chuyến đi.
+ * @throws {Error} Quăng lỗi nếu không tìm thấy khách hàng.
  */
 export const getCustomerDetail = async (userId) => {
+    // Lấy thông tin User cùng với các quan hệ liên quan
     const user = await prisma.user.findUnique({
         where: { id: Number(userId) },
         include: {
@@ -71,10 +95,12 @@ export const getCustomerDetail = async (userId) => {
         },
     });
 
+    // Kiểm tra sự tồn tại của khách hàng
     if (!user || !user.customer) {
         throw new Error('Customer not found');
     }
 
+    // Đếm tổng số chuyến đi của khách hàng này
     const totalTrips = await prisma.trip.count({
         where: { customerId: user.customer.id }
     });
@@ -86,7 +112,12 @@ export const getCustomerDetail = async (userId) => {
 };
 
 /**
- * Cập nhật trạng thái khách hàng
+ * Cập nhật trạng thái hoạt động của khách hàng (ví dụ: khóa tài khoản, kích hoạt lại).
+ * 
+ * @param {number|string} userId - ID của người dùng.
+ * @param {string} status - Trạng thái mới ('active', 'banned', 'suspended').
+ * @returns {Promise<Object>} Đối tượng User sau khi đã cập nhật.
+ * @throws {Error} Quăng lỗi nếu trạng thái không hợp lệ.
  */
 export const changeCustomerStatus = async (userId, status) => {
     const validStatuses = ['active', 'banned', 'suspended'];
@@ -103,24 +134,27 @@ export const changeCustomerStatus = async (userId, status) => {
 };
 
 /**
- * Lấy thống kê khách hàng cho Admin Dashboard
+ * Lấy các thông số thống kê về khách hàng phục vụ cho Dashboard Admin.
+ * Thống kê bao gồm: Tổng số khách, số khách đang hoạt động và số khách mới trong tháng.
+ * 
+ * @returns {Promise<Object>} Đối tượng chứa các thông số thống kê.
  */
 export const getCustomerStats = async () => {
-    // Ngày đầu tháng hiện tại
+    // Xác định mốc thời gian bắt đầu của tháng hiện tại
     const startOfMonth = new Date();
     startOfMonth.setDate(1);
     startOfMonth.setHours(0, 0, 0, 0);
 
     const [totalCustomers, activeCustomers, newThisMonth] = await Promise.all([
-        // 1. Tổng khách hàng/sum
+        // 1. Thống kê tổng số khách hàng hệ thống
         prisma.user.count({
             where: { roleId: 3 }
         }),
-        // 2. Khách hàng đang hoạt động/online 
+        // 2. Thống kê khách hàng có trạng thái đang hoạt động
         prisma.user.count({
             where: { roleId: 3, status: 'active' }
         }),
-        // 3. Khách hàng mới tháng này/ month 
+        // 3. Thống kê khách hàng mới đăng ký trong tháng này
         prisma.user.count({
             where: {
                 roleId: 3,
