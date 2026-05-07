@@ -112,17 +112,17 @@ export const getCustomerStats = async () => {
     startOfMonth.setHours(0, 0, 0, 0);
 
     const [totalCustomers, activeCustomers, newThisMonth] = await Promise.all([
-        // 1. Tổng khách hàng
+        // 1. Tổng khách hàng/sum
         prisma.user.count({
             where: { roleId: 3 }
         }),
-        // 2. Khách hàng đang hoạt động
+        // 2. Khách hàng đang hoạt động/online 
         prisma.user.count({
             where: { roleId: 3, status: 'active' }
         }),
-        // 3. Khách hàng mới tháng này
+        // 3. Khách hàng mới tháng này/ month 
         prisma.user.count({
-            where: { 
+            where: {
                 roleId: 3,
                 createdAt: {
                     gte: startOfMonth
