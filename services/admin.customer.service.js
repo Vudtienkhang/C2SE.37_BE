@@ -24,7 +24,7 @@ export const getAllCustomers = async (page = 1, limit = 10, search = '') => {
             include: {
                 customer: {
                     include: {
-                        trips: { select: { finalPrice: true, id: true } } // Để tính tổng tiền / chuyến đi
+                        trips: { select: { finalPrice: true, id: true } } // Để tính sum money / trip
                     }
                 },
             },
@@ -55,7 +55,7 @@ export const getAllCustomers = async (page = 1, limit = 10, search = '') => {
 };
 
 /**
- * Lấy chi tiết 1 khách hàng
+ * Lấy chi tiết 1 khách hàng customer
  */
 export const getCustomerDetail = async (userId) => {
     const user = await prisma.user.findUnique({
@@ -86,7 +86,7 @@ export const getCustomerDetail = async (userId) => {
 };
 
 /**
- * Cập nhật trạng thái khách hàng
+ * Cập nhật status khách hàng
  */
 export const changeCustomerStatus = async (userId, status) => {
     const validStatuses = ['active', 'banned', 'suspended'];
@@ -122,7 +122,7 @@ export const getCustomerStats = async () => {
         }),
         // 3. Khách hàng mới tháng này
         prisma.user.count({
-            where: { 
+            where: {
                 roleId: 3,
                 createdAt: {
                     gte: startOfMonth
