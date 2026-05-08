@@ -89,6 +89,9 @@ export const checkPermission = (permissionCode) => {
     };
 };
 
+/**
+ * Middleware xác thực Token của người dùng (Customer/Driver)
+ */
 export const verifyToken = (req, res, next) => {
     try {
         let token = null;
@@ -125,6 +128,10 @@ export const verifyToken = (req, res, next) => {
     }
 };
 
+/**
+ * Middleware xác thực Token không bắt buộc
+ * Nếu có token hợp lệ thì lưu thông tin user, nếu không thì bỏ qua
+ */
 export const optionalVerifyToken = (req, res, next) => {
     try {
         const authHeader = req.headers.authorization;
