@@ -1,6 +1,9 @@
 import prisma from '../prisma/prisma.js';
 
 // ─── GET ALL ──────────────────────────────────────────────────────────────────
+/**
+ * Lấy danh sách tất cả voucher (có lọc theo trạng thái và tìm kiếm)
+ */
 export const getAllVouchers = async (req, res) => {
   try {
     const { status, search } = req.query;
@@ -38,6 +41,9 @@ export const getAllVouchers = async (req, res) => {
 };
 
 // ─── GET BY ID ────────────────────────────────────────────────────────────────
+/**
+ * Lấy chi tiết một voucher theo ID
+ */
 export const getVoucherById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -54,6 +60,9 @@ export const getVoucherById = async (req, res) => {
 };
 
 // ─── CREATE ───────────────────────────────────────────────────────────────────
+/**
+ * Tạo mới một voucher
+ */
 export const createVoucher = async (req, res) => {
   try {
     const {
@@ -107,6 +116,9 @@ export const createVoucher = async (req, res) => {
 };
 
 // ─── UPDATE ───────────────────────────────────────────────────────────────────
+/**
+ * Cập nhật thông tin voucher
+ */
 export const updateVoucher = async (req, res) => {
   try {
     const { id } = req.params;
@@ -161,6 +173,9 @@ export const updateVoucher = async (req, res) => {
 };
 
 // ─── TOGGLE STATUS ────────────────────────────────────────────────────────────
+/**
+ * Thay đổi trạng thái hoạt động (Bật/Tắt) của voucher
+ */
 export const toggleVoucherStatus = async (req, res) => {
   try {
     const { id } = req.params;
@@ -181,6 +196,9 @@ export const toggleVoucherStatus = async (req, res) => {
 };
 
 // ─── DELETE ───────────────────────────────────────────────────────────────────
+/**
+ * Xóa voucher khỏi hệ thống (nếu chưa có lịch sử sử dụng)
+ */
 export const deleteVoucher = async (req, res) => {
   try {
     const { id } = req.params;
@@ -205,6 +223,9 @@ export const deleteVoucher = async (req, res) => {
 };
 
 // ─── GET PUBLIC VOUCHERS ──────────────────────────────────────────────────────
+/**
+ * Lấy danh sách các voucher đang khả dụng cho người dùng
+ */
 export const getPublicVouchers = async (req, res) => {
   try {
     const now = new Date();
@@ -256,6 +277,9 @@ export const getPublicVouchers = async (req, res) => {
 };
 
 // ─── VALIDATE ─────────────────────────────────────────────────────────────────
+/**
+ * Kiểm tra tính hợp lệ và tính toán số tiền giảm giá của voucher
+ */
 export const validateVoucher = async (req, res) => {
   try {
     const { code, orderValue } = req.body;
@@ -350,6 +374,9 @@ export const validateVoucher = async (req, res) => {
   }
 };
 // ─── GET VOUCHER USAGE HISTORY ───────────────────────────────────────────────
+/**
+ * Lấy lịch sử sử dụng của một voucher cụ thể
+ */
 export const getVoucherUsage = async (req, res) => {
   try {
     const { id } = req.params;
