@@ -115,8 +115,8 @@ export const updateDriverStatus = async (req, res) => {
 export const updateDocumentStatus = async (req, res) => {
     try {
         const { id } = req.params;
-        const { status, reviewedById } = req.body;
-        const doc = await authAdmin.updateDocumentStatus(id, status, reviewedById);
+        const { status, reviewedById, expiryDate } = req.body;
+        const doc = await authAdmin.updateDocumentStatus(id, status, reviewedById, expiryDate);
         return res.status(200).json({
             success: true,
             message: 'Cập nhật trạng thái tài liệu thành công',

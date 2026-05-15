@@ -172,6 +172,7 @@ model DocumentType {
   name              String
   code              String           @unique
   description       String?
+  isExpirable       Boolean          @default(false)
   isRequired        Boolean          @default(true)
   isActive          Boolean          @default(true)
   createdAt         DateTime         @default(now())
@@ -185,6 +186,7 @@ model DriverDocument {
   documentTypeId Int
   fileUrl        String
   status         String
+  expiryDate     DateTime?
   reviewedById   Int?
   reviewedAt     DateTime?
   uploadedAt     DateTime     @default(now())

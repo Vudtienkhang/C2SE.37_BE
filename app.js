@@ -78,4 +78,13 @@ app.get('/', (req, res) => {
   res.send('API is running...');
 });
 
+// Cron Jobs
+import cron from 'node-cron';
+import { checkDocumentExpirations } from './services/expiry-check.service.js';
+
+// Chạy kiểm tra hết hạn giấy tờ vào lúc 00:00 mỗi ngày
+cron.schedule('0 0 * * *', () => {
+  checkDocumentExpirations();
+});
+
 export default app;

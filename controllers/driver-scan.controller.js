@@ -133,6 +133,7 @@ export const updateStatus = async (req, res) => {
     if (!currentDriver) return res.status(404).json({ message: 'Không tìm thấy tài xế' });
 
     if (isOnline) {
+      // 1. Kiểm tra bài thi bắt buộc
       const mandatoryQuizCount = await prisma.knowledgeQuiz.count({
         where: { isActive: true, isMandatory: true }
       });
@@ -141,6 +142,17 @@ export const updateStatus = async (req, res) => {
         return res.status(403).json({ 
           error_code: 'TEST_REQUIRED',
           message: 'Bạn chưa hoàn thành bài kiểm tra kiến thức bắt buộc.' 
+        });
+      }
+
+      // 2. Kiểm tra giấy tờ hết hạn (Real-time)
+      const { checkExpiredDocuments } = await import('../services/driver-eligibility.service.js');
+      const expiryStatus = await checkExpiredDocuments(driverId);
+      
+      if (expiryStatus.isExpired) {
+        return res.status(403).json({
+          error_code: 'DOCUMENT_EXPIRED',
+          message: `Bạn có giấy tờ đã hết hạn (${expiryStatus.expiredDocs.join(', ')}). Vui lòng cập nhật để tiếp tục hoạt động.`
         });
       }
     }
@@ -249,6 +261,17 @@ export const verifyFace = async (req, res) => {
         });
       }
 
+      // 2. Kiểm tra giấy tờ hết hạn (Real-time)
+      const { checkExpiredDocuments } = await import('../services/driver-eligibility.service.js');
+      const expiryStatus = await checkExpiredDocuments(driverId);
+      
+      if (expiryStatus.isExpired) {
+        return res.status(403).json({
+          error_code: 'DOCUMENT_EXPIRED',
+          message: `Bạn có giấy tờ đã hết hạn (${expiryStatus.expiredDocs.join(', ')}). Vui lòng cập nhật để tiếp tục hoạt động.`
+        });
+      }
+
       await new Promise(resolve => setTimeout(resolve, 800)); // Nhanh hơn mock cũ
       
       const driver = await prisma.driver.update({
@@ -274,6 +297,17 @@ export const verifyFace = async (req, res) => {
       return res.status(403).json({ 
          error_code: 'TEST_REQUIRED',
          message: 'Bạn chưa hoàn thành bài kiểm tra kiến thức bắt buộc.' 
+      });
+    }
+
+    // 2. Kiểm tra giấy tờ hết hạn (Real-time)
+    const { checkExpiredDocuments } = await import('../services/driver-eligibility.service.js');
+    const expiryStatus = await checkExpiredDocuments(driverId);
+    
+    if (expiryStatus.isExpired) {
+      return res.status(403).json({
+        error_code: 'DOCUMENT_EXPIRED',
+        message: `Bạn có giấy tờ đã hết hạn (${expiryStatus.expiredDocs.join(', ')}). Vui lòng cập nhật để tiếp tục hoạt động.`
       });
     }
 
