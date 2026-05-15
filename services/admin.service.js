@@ -21,14 +21,9 @@ export const loginUser = async ({ email, password }) => {
     }
 
     // KIỂM TRA QUYỀN HẠN DYNAMIC (PBAC):
-    // Chỉ cho phép đăng nhập nếu Role của user này có ít nhất 1 quyền được gán
-    const permissionCount = await prisma.rolePermission.count({
-        where: { roleId: user.roleId }
-    });
+    // Ghi chú: Chúng tôi cho phép tất cả người dùng đăng nhập vào Portal Web, 
+    // nhưng việc truy cập Dashboard Admin sẽ được kiểm tra bởi Permission ở Frontend và Middleware ở Backend.
 
-    if (permissionCount === 0) {
-        throw new Error('Bạn không có quyền hạn đăng nhập. Tính năng này chỉ dành cho nhân viên có quyền quản trị.');
-    }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
@@ -250,13 +245,14 @@ export const updateDriverStatus = async (id, status, reason = null, reviewedById
     return updatedDriver;
 };
 
-export const updateDocumentStatus = async (id, status, reviewedById) => {
+export const updateDocumentStatus = async (id, status, reviewedById, expiryDate = null) => {
     return await prisma.driverDocument.update({
         where: { id: parseInt(id) },
         data: { 
             status, 
             reviewedById: parseInt(reviewedById),
-            reviewedAt: new Date()
+            reviewedAt: new Date(),
+            expiryDate: expiryDate ? new Date(expiryDate) : null
         }
     });
 };

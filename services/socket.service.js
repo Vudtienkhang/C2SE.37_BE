@@ -121,6 +121,21 @@ export const initSocket = (server) => {
       }
     });
 
+    socket.on('user:update_location', async (data) => {
+      try {
+        const { userId, lat, lng } = data;
+        if (!userId) return;
+        
+        await redis.set(`user:${userId}:last_location`, JSON.stringify({ 
+          lat, 
+          lng, 
+          time: new Date() 
+        }), 'EX', 3600); // Lưu trong 1 tiếng
+      } catch (err) {
+        logger.error(err, 'Error in user:update_location');
+      }
+    });
+
     socket.on('driver:update_location', async (data) => {
       try {
         const { driverId, lat, lng } = data;
