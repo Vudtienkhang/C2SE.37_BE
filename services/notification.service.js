@@ -92,7 +92,14 @@ class NotificationService {
    * Gửi thông báo tới TẤT CẢ Khách hàng
    */
   async notifyAllCustomers(title, content, type = 'INFO') {
-    const customers = await prisma.customer.findMany({ select: { userId: true } });
+    const customers = await prisma.customer.findMany({
+      where: {
+        user: {
+          roleId: 3 // Chỉ chọn người dùng có vai trò là Khách hàng (Customer)
+        }
+      },
+      select: { userId: true }
+    });
     const notifications = await Promise.all(
       customers.map((c) => this.createNotification(c.userId, title, content, type))
     );

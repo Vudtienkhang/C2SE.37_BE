@@ -39,6 +39,7 @@ router.get('/users', verifyAdminToken, checkPermission('ROLES_MANAGE'), adminCon
 router.get('/customers', verifyAdminToken, checkPermission('CUSTOMERS_VIEW'), adminCustomerController.getCustomersInfo);
 router.get('/customers/stats', verifyAdminToken, checkPermission('DASHBOARD_VIEW'), adminCustomerController.getCustomerStats);
 router.get('/customers/:id', verifyAdminToken, checkPermission('CUSTOMERS_VIEW'), adminCustomerController.getCustomerDetail);
+router.get('/customers/:id/trips', verifyAdminToken, checkPermission('CUSTOMERS_VIEW'), adminCustomerController.getCustomerTrips);
 router.put('/customers/:id/status', verifyAdminToken, checkPermission('CUSTOMERS_STATUS_EDIT'), adminCustomerController.updateCustomerStatus);
 
 // Quản lý tài xế

@@ -67,9 +67,14 @@ import jwt from 'jsonwebtoken';
 const JWT_SECRET = process.env.JWT_SECRET || 'safeway_super_secret_key';
 
 export const loginUser = async ({ phone, password }) => {
-  // 1. Tìm người dùng theo số điện thoại
-  const user = await prisma.user.findUnique({
-    where: { phone },
+  // 1. Tìm người dùng theo số điện thoại hoặc email
+  const user = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { phone: phone },
+        { email: phone }
+      ]
+    },
   });
 
   // 2. Kiểm tra xem người dùng có tồn tại không
@@ -101,9 +106,9 @@ export const loginUser = async ({ phone, password }) => {
     })
   ]);
 
-  // 5. Xác định quyền hạn (Nếu tài xế chưa được duyệt, cho phép đăng nhập và sử dụng với quyền Customer)
+  // 5. Xác định quyền hạn (Nếu tài xế chưa được duyệt hoặc bị từ chối, cho phép đăng nhập và sử dụng với quyền Customer)
   let roleIdToUse = user.roleId;
-  if (user.roleId === 2 && driver && driver.status === 'pending') {
+  if (user.roleId === 2 && driver && driver.status !== 'approved') {
     roleIdToUse = 3;
   }
 
@@ -211,7 +216,7 @@ export const getUserById = async (id) => {
 
   // 3. Xác định quyền hạn tạm thời
   let roleIdToUse = user.roleId;
-  if (user.roleId === 2 && driver && driver.status === 'pending') {
+  if (user.roleId === 2 && driver && driver.status !== 'approved') {
     roleIdToUse = 3;
   }
 
@@ -379,7 +384,21 @@ export const updateUser = async (id, { fullName, phone, email }) => {
 export const registerDriver = async ({ userId, fullName, cccdNumber, licenseNumber, licenseType, avatarUrl, serviceType }) => {
   const numericUserId = parseInt(userId, 10);
 
-  // 1. Kiểm tra người dùng
+  // 1. Kiểm tra tính hợp lệ của bằng lái xe theo luật giao thông Việt Nam
+  const selectedService = serviceType || 'FOR_HIRE';
+  const typeUpper = (licenseType || '').toUpperCase();
+  
+  // Bằng B1 tuyệt đối không được hành nghề lái xe thương mại/dịch vụ
+  if (typeUpper.startsWith('B1')) {
+    throw new Error('Bằng lái xe hạng B1 không được phép hành nghề lái xe dịch vụ.');
+  }
+  
+  // Nghiệp vụ Lái hộ (FOR_HIRE) yêu cầu lái xe ô tô của khách hàng chuyên nghiệp, bắt buộc phải có bằng ô tô hạng B2 trở lên
+  if (selectedService === 'FOR_HIRE' && (typeUpper.startsWith('A') || typeUpper.startsWith('B1'))) {
+    throw new Error('Nghiệp vụ lái xe hộ yêu cầu bằng lái ô tô thương mại (hạng B2 trở lên).');
+  }
+
+  // 2. Kiểm tra người dùng
   const user = await prisma.user.findUnique({
     where: { id: numericUserId },
   });

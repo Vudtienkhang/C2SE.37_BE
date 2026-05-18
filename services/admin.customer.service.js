@@ -74,6 +74,48 @@ export const getAllCustomers = async (page = 1, limit = 10, search = '') => {
 };
 
 /**
+ * Lấy danh sách chuyến đi của một khách hàng có phân trang.
+ */
+export const getCustomerTrips = async (userId, page = 1, limit = 5) => {
+    const skip = (page - 1) * limit;
+
+    const user = await prisma.user.findUnique({
+        where: { id: Number(userId) },
+        select: { customer: { select: { id: true } } }
+    });
+
+    if (!user || !user.customer) throw new Error('Customer not found');
+
+    const [trips, total] = await Promise.all([
+        prisma.trip.findMany({
+            where: { customerId: user.customer.id },
+            skip,
+            take: Number(limit),
+            orderBy: { createdAt: 'desc' },
+            select: {
+                id: true,
+                finalPrice: true,
+                status: true,
+                createdAt: true,
+                pickupAddress: true,
+                dropoffAddress: true
+            }
+        }),
+        prisma.trip.count({ where: { customerId: user.customer.id } })
+    ]);
+
+    return {
+        data: trips,
+        meta: {
+            total,
+            page: Number(page),
+            limit: Number(limit),
+            totalPages: Math.ceil(total / limit)
+        }
+    };
+};
+
+/**
  * Lấy thông tin chi tiết của một khách hàng cụ thể.
  * 
  * @param {number|string} userId - ID của người dùng (khách hàng).
@@ -89,6 +131,16 @@ export const getCustomerDetail = async (userId) => {
                 include: {
                     vehicles: true,
                     savedAddresses: true,
+                    trips: {
+                        take: 5,
+                        orderBy: { createdAt: 'desc' },
+                        select: {
+                            id: true,
+                            finalPrice: true,
+                            status: true,
+                            createdAt: true
+                        }
+                    }
                 }
             },
             wallet: true,
@@ -100,14 +152,32 @@ export const getCustomerDetail = async (userId) => {
         throw new Error('Customer not found');
     }
 
-    // Đếm tổng số chuyến đi của khách hàng này
-    const totalTrips = await prisma.trip.count({
-        where: { customerId: user.customer.id }
+    // Tính toán thống kê
+    const allTrips = await prisma.trip.findMany({
+        where: { customerId: user.customer.id },
+        select: { finalPrice: true, status: true }
+    });
+
+    const totalTrips = allTrips.length;
+    const totalSpent = allTrips.reduce((sum, trip) => sum + (trip.finalPrice || 0), 0);
+    const completedTrips = allTrips.filter(t => t.status === 'completed').length;
+
+    // Tính rating trung bình từ các review khách đã viết
+    const avgRating = await prisma.review.aggregate({
+        where: { customerId: user.customer.id },
+        _avg: { rating: true }
     });
 
     return {
         ...user,
-        totalTrips
+        stats: {
+            totalTrips,
+            totalSpent,
+            completedTrips,
+            ratingAvg: avgRating._avg.rating || 0
+        },
+        recentTrips: user.customer.trips,
+        address: user.customer.savedAddresses.find(a => a.type === 'home')?.address || user.customer.savedAddresses[0]?.address
     };
 };
 

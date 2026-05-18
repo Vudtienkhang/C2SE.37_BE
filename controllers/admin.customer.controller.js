@@ -77,3 +77,22 @@ export const getCustomerStats = async (req, res) => {
     }
 };
 
+
+export const getCustomerTrips = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 5;
+        const result = await adminCustomerService.getCustomerTrips(id, page, limit);
+        res.status(200).json({
+            success: true,
+            ...result,
+        });
+    } catch (error) {
+        console.error('Error getting customer trips: ', error);
+        res.status(500).json({
+            success: false,
+            message: 'Da xay ra loi khi lay lich su chuyen di.',
+        });
+    }
+};

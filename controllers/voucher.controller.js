@@ -1,4 +1,5 @@
 import prisma from '../prisma/prisma.js';
+import notificationService from '../services/notification.service.js';
 
 // ─── GET ALL ──────────────────────────────────────────────────────────────────
 /**
@@ -77,6 +78,7 @@ export const createVoucher = async (req, res) => {
       endDate,
       isActive,
       isOneTimePerUser,
+      sendNotification, // Mới thêm: Gửi thông báo ngay
     } = req.body;
 
     if (!code || !discountType || discountValue === undefined || !startDate) {
@@ -84,6 +86,27 @@ export const createVoucher = async (req, res) => {
         success: false,
         message: 'Thiếu thông tin bắt buộc: code, discountType, discountValue, startDate',
       });
+    }
+
+    const startOfDayToday = new Date();
+    startOfDayToday.setHours(0, 0, 0, 0);
+
+    const parsedStartDate = new Date(startDate);
+    if (parsedStartDate < startOfDayToday) {
+      return res.status(400).json({
+        success: false,
+        message: 'Ngày bắt đầu của voucher mới không được ở quá khứ.',
+      });
+    }
+
+    if (endDate) {
+      const parsedEndDate = new Date(endDate);
+      if (parsedEndDate < parsedStartDate) {
+        return res.status(400).json({
+          success: false,
+          message: 'Ngày kết thúc phải diễn ra sau ngày bắt đầu.',
+        });
+      }
     }
 
     const voucher = await prisma.voucher.create({
@@ -101,6 +124,38 @@ export const createVoucher = async (req, res) => {
         isOneTimePerUser: isOneTimePerUser !== undefined ? Boolean(isOneTimePerUser) : true,
       },
     });
+
+    // ─── Gửi thông báo nếu yêu cầu ───────────────────────────────────────────
+    if (sendNotification) {
+      try {
+        const title = '🎫 Bạn nhận được mã giảm giá mới!';
+        const content = `Mã ${voucher.code} giảm ${discountType === 'percent' ? discountValue + '%' : parseFloat(discountValue).toLocaleString() + 'đ'} đang đợi bạn. Sử dụng ngay nhé!`;
+
+        if (voucher.target === 'all') {
+          await notificationService.notifyAllCustomers(title, content, 'PROMOTION');
+        } else if (voucher.target === 'new_customer') {
+          // Gửi cho khách mới trong vòng 7 ngày
+          const newUsers = await prisma.user.findMany({
+            where: {
+              roleId: 3, // Chỉ lấy Khách hàng (Customer)
+              createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
+            },
+            select: { id: true }
+          });
+          if (newUsers.length > 0) {
+            await notificationService.notifyUsers(newUsers.map(u => u.id), title, content, 'PROMOTION');
+          }
+        } else if (voucher.target.startsWith('specific:')) {
+          const userIds = voucher.target.replace('specific:', '').split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+          if (userIds.length > 0) {
+            await notificationService.notifyUsers(userIds, title, content, 'PROMOTION');
+          }
+        }
+        // Các nhóm khác như loyal_customer, vip_customer có thể bổ sung tương tự
+      } catch (notifyError) {
+        console.error('Lỗi gửi thông báo voucher:', notifyError);
+      }
+    }
 
     res.status(201).json({ success: true, data: voucher });
   } catch (error) {
@@ -139,6 +194,16 @@ export const updateVoucher = async (req, res) => {
     const existing = await prisma.voucher.findUnique({ where: { id: parseInt(id) } });
     if (!existing) {
       return res.status(404).json({ success: false, message: 'Voucher không tìm thấy' });
+    }
+
+    const finalStartDate = startDate ? new Date(startDate) : existing.startDate;
+    const finalEndDate = endDate !== undefined ? (endDate ? new Date(endDate) : null) : existing.endDate;
+
+    if (finalEndDate && finalStartDate && new Date(finalEndDate) < new Date(finalStartDate)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Ngày kết thúc phải diễn ra sau ngày bắt đầu.',
+      });
     }
 
     const voucher = await prisma.voucher.update({
@@ -246,14 +311,7 @@ export const getPublicVouchers = async (req, res) => {
       const usedIds = usedVouchers.map(u => u.voucherId);
 
       if (usedIds.length > 0) {
-        condition.AND = [
-          {
-            OR: [
-              { isOneTimePerUser: false },
-              { id: { notIn: usedIds } }
-            ]
-          }
-        ];
+        condition.id = { notIn: usedIds };
       }
     }
 
@@ -320,25 +378,49 @@ export const validateVoucher = async (req, res) => {
       });
     }
 
-    // Kiểm tra giới hạn 1 lần sử dụng cho mỗi tài khoản
-    if (voucher.isOneTimePerUser) {
-      const userId = req.user?.id;
-      if (!userId) {
-        return res.status(401).json({ success: false, message: 'Vui lòng đăng nhập để sử dụng mã này' });
-      }
+    // ─── KIỂM TRA ĐỐI TƯỢNG (TARGET) ──────────────────────────────────────────
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Vui lòng đăng nhập để sử dụng mã này' });
+    }
 
-      const existingUsage = await prisma.voucherUsage.findFirst({
-        where: {
-          voucherId: voucher.id,
-          userId: userId,
-          // Có thể thêm điều kiện Trip status nếu cần, 
-          // nhưng hiện tại chỉ cần check xem đã có bản ghi nào chưa
-        }
-      });
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { customer: { include: { _count: { select: { trips: { where: { status: 'completed' } } } } } } }
+    });
 
-      if (existingUsage) {
-        return res.status(400).json({ success: false, message: 'Bạn đã sử dụng mã giảm giá này cho một đơn hàng khác.' });
+    if (voucher.target === 'new_customer') {
+      const isNew = new Date(user.createdAt) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      if (!isNew) {
+        return res.status(400).json({ success: false, message: 'Mã giảm giá này chỉ dành cho khách hàng mới' });
       }
+    } else if (voucher.target === 'loyal_customer') {
+      const tripCount = user.customer?._count?.trips || 0;
+      if (tripCount < 5) {
+        return res.status(400).json({ success: false, message: 'Mã này chỉ dành cho khách hàng thân thiết (từ 5 chuyến đi)' });
+      }
+    } else if (voucher.target === 'vip_customer') {
+      const tripCount = user.customer?._count?.trips || 0;
+      if (tripCount < 20) {
+        return res.status(400).json({ success: false, message: 'Mã này chỉ dành cho khách hàng VIP (từ 20 chuyến đi)' });
+      }
+    } else if (voucher.target.startsWith('specific:')) {
+      const allowedIds = voucher.target.replace('specific:', '').split(',').map(id => id.trim());
+      if (!allowedIds.includes(userId.toString())) {
+        return res.status(400).json({ success: false, message: 'Bạn không thuộc đối tượng được sử dụng mã này' });
+      }
+    }
+
+    // Kiểm tra giới hạn 1 lần sử dụng cho mỗi tài khoản (mặc định áp dụng cho tất cả voucher)
+    const existingUsage = await prisma.voucherUsage.findFirst({
+      where: {
+        voucherId: voucher.id,
+        userId: userId,
+      }
+    });
+
+    if (existingUsage) {
+      return res.status(400).json({ success: false, message: 'Bạn đã sử dụng mã giảm giá này cho một đơn hàng khác.' });
     }
 
     // Tính toán số tiền được giảm

@@ -121,9 +121,10 @@ export const uploadDriverDocumentToSupabase = async (userId, documentTypeId, fil
 export const uploadDisputeEvidenceToSupabase = async (userId, tripId, fileBuffer, mimeType) => {
   // Xác định extension dựa trên mimeType
   let ext = 'bin';
-  if (mimeType.includes('image')) ext = 'png';
-  if (mimeType.includes('audio')) ext = 'mp3';
-  if (mimeType.includes('pdf')) ext = 'pdf';
+  const typeStr = mimeType || '';
+  if (typeStr.includes('image')) ext = 'png';
+  if (typeStr.includes('audio')) ext = 'mp3';
+  if (typeStr.includes('pdf')) ext = 'pdf';
 
   const fileName = `dispute_u${userId}_t${tripId}_${Date.now()}.${ext}`;
   
@@ -157,7 +158,8 @@ export const uploadDisputeEvidenceToSupabase = async (userId, tripId, fileBuffer
 export const uploadChatImageToSupabase = async (tripId, senderId, fileBuffer, mimeType) => {
   // Xác định extension dựa trên mimeType
   let ext = 'png';
-  if (mimeType.includes('jpeg') || mimeType.includes('jpg')) ext = 'jpg';
+  const typeStr = mimeType || '';
+  if (typeStr.includes('jpeg') || typeStr.includes('jpg')) ext = 'jpg';
   
   const fileName = `chat_trip${tripId}_user${senderId}_${Date.now()}.${ext}`;
   
@@ -189,7 +191,8 @@ export const uploadChatImageToSupabase = async (tripId, senderId, fileBuffer, mi
  */
 export const uploadWithdrawalProofToSupabase = async (withdrawalId, fileBuffer, mimeType) => {
   let ext = 'png';
-  if (mimeType.includes('jpeg') || mimeType.includes('jpg')) ext = 'jpg';
+  const typeStr = mimeType || '';
+  if (typeStr.includes('jpeg') || typeStr.includes('jpg')) ext = 'jpg';
   
   const fileName = `withdraw_${withdrawalId}_${Date.now()}.${ext}`;
   
@@ -308,8 +311,9 @@ export const uploadVehicleImagesToSupabase = async (driverId, files) => {
 export const uploadAcademyContentToSupabase = async (fileBuffer, mimeType, originalName) => {
   // Xác định extension
   let ext = originalName ? originalName.split('.').pop() : 'bin';
-  if (mimeType.includes('video/mp4')) ext = 'mp4';
-  if (mimeType.includes('application/pdf')) ext = 'pdf';
+  const typeStr = mimeType || '';
+  if (typeStr.includes('video/mp4')) ext = 'mp4';
+  if (typeStr.includes('application/pdf')) ext = 'pdf';
 
   const fileName = `academy_${Date.now()}.${ext}`;
   
@@ -341,8 +345,9 @@ export const uploadAcademyContentToSupabase = async (fileBuffer, mimeType, origi
  */
 export const uploadTripInspectionToSupabase = async (tripId, fileBuffer, mimeType) => {
   let ext = 'mp4';
-  if (mimeType.includes('mov')) ext = 'mov';
-  if (mimeType.includes('quicktime')) ext = 'mov';
+  const typeStr = mimeType || '';
+  if (typeStr.includes('mov')) ext = 'mov';
+  if (typeStr.includes('quicktime')) ext = 'mov';
   
   const fileName = `inspection_trip${tripId}_${Date.now()}.${ext}`;
   

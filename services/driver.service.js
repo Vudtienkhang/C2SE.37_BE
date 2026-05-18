@@ -48,15 +48,22 @@ export const getDriverEarningsStats = async (userId, startDateISO, endDateISO) =
       driverId: driver.id,
       createdAt: { gte: start, lte: end }
     },
-    include: { commissions: true }
+    include: { commissions: true, feeBreakdowns: true }
   });
 
   const completedPeriod = periodTrips.filter(t => t.status === 'completed');
   
   const periodIncome = completedPeriod.reduce((acc, trip) => {
-    const commission = trip.commissions[0]?.commissionAmount ?? ( (trip.priceEstimate || trip.finalPrice || 0) * (defaultRate / 100) );
-    const originalPrice = trip.priceEstimate || trip.finalPrice || 0;
-    return acc + (originalPrice - commission);
+    const baseFareRecord = trip.feeBreakdowns.find(f => f.feeType === 'base_fare');
+    const baseFare = baseFareRecord ? baseFareRecord.amount : (trip.priceEstimate || trip.finalPrice || 0);
+    
+    const surcharges = trip.feeBreakdowns
+      .filter(f => f.feeType.startsWith('surcharge_'))
+      .reduce((sum, f) => sum + f.amount, 0);
+
+    const commission = trip.commissions[0]?.commissionAmount ?? ( baseFare * (defaultRate / 100) );
+    const driverEarnings = (baseFare - commission) + surcharges;
+    return acc + driverEarnings;
   }, 0);
 
   // 2. Weekly stats (Vẫn giữ để hiển thị nhanh nếu cần, hoặc có thể dùng periodIncome nếu chọn theo tuần)
@@ -73,13 +80,20 @@ export const getDriverEarningsStats = async (userId, startDateISO, endDateISO) =
       status: 'completed',
       createdAt: { gte: weekStart }
     },
-    include: { commissions: true }
+    include: { commissions: true, feeBreakdowns: true }
   });
 
   const weeklyIncome = weeklyTrips.reduce((acc, trip) => {
-    const commission = trip.commissions[0]?.commissionAmount ?? ( (trip.priceEstimate || trip.finalPrice || 0) * (defaultRate / 100) );
-    const originalPrice = trip.priceEstimate || trip.finalPrice || 0;
-    return acc + (originalPrice - commission);
+    const baseFareRecord = trip.feeBreakdowns.find(f => f.feeType === 'base_fare');
+    const baseFare = baseFareRecord ? baseFareRecord.amount : (trip.priceEstimate || trip.finalPrice || 0);
+    
+    const surcharges = trip.feeBreakdowns
+      .filter(f => f.feeType.startsWith('surcharge_'))
+      .reduce((sum, f) => sum + f.amount, 0);
+
+    const commission = trip.commissions[0]?.commissionAmount ?? ( baseFare * (defaultRate / 100) );
+    const driverEarnings = (baseFare - commission) + surcharges;
+    return acc + driverEarnings;
   }, 0);
 
   // 3. Recent trips (last 20 - Hiển thị ở mục Lịch sử gần đây)
@@ -90,6 +104,7 @@ export const getDriverEarningsStats = async (userId, startDateISO, endDateISO) =
     },
     include: {
       commissions: true,
+      feeBreakdowns: true,
       conversation: {
         include: {
           messages: {
@@ -110,16 +125,24 @@ export const getDriverEarningsStats = async (userId, startDateISO, endDateISO) =
   });
 
   const mappedRecentTrips = recentTrips.map(trip => {
-    const commission = trip.commissions[0]?.commissionAmount ?? ( (trip.priceEstimate || trip.finalPrice || 0) * (defaultRate / 100) );
-    const originalPrice = trip.priceEstimate || trip.finalPrice || 0;
+    const baseFareRecord = trip.feeBreakdowns.find(f => f.feeType === 'base_fare');
+    const baseFare = baseFareRecord ? baseFareRecord.amount : (trip.priceEstimate || trip.finalPrice || 0);
+    
+    const surcharges = trip.feeBreakdowns
+      .filter(f => f.feeType.startsWith('surcharge_'))
+      .reduce((sum, f) => sum + f.amount, 0);
+
+    const commission = trip.commissions[0]?.commissionAmount ?? ( baseFare * (defaultRate / 100) );
+    const driverEarnings = (baseFare - commission) + surcharges;
+
     return {
       id: trip.id,
       createdAt: trip.createdAt,
       distanceKm: trip.distanceKm,
       finalPrice: trip.finalPrice,
-      originalPrice,
+      originalPrice: baseFare + surcharges,
       commission,
-      driverIncome: originalPrice - commission,
+      driverIncome: driverEarnings,
       hasMessages: (trip.conversation?._count?.messages || 0) > 0,
       unreadCount: trip.conversation?.messages?.length || 0
     };

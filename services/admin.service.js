@@ -7,8 +7,13 @@ import { invalidateProfileCache } from './auth.services.js';
 const JWT_SECRET = process.env.JWT_SECRET || 'safeway_super_secret_key';
 
 export const loginUser = async ({ email, password }) => {
-    const user = await prisma.user.findUnique({
-        where: { email },
+    const user = await prisma.user.findFirst({
+        where: {
+            OR: [
+                { email: email },
+                { phone: email }
+            ]
+        },
         include: { role: true }
     });
 
@@ -215,6 +220,12 @@ export const updateDriverStatus = async (id, status, reason = null, reviewedById
             "SUCCESS"
         );
     } else if (status === 'rejected') {
+        // Cập nhật lại role của user thành Customer (roleId = 3) khi bị bác bỏ hồ sơ tài xế
+        await prisma.user.update({
+            where: { id: updatedDriver.userId },
+            data: { roleId: 3 }
+        });
+
         // Gửi thông báo từ chối
         await notificationService.createNotification(
             updatedDriver.userId,
@@ -555,6 +566,7 @@ export const getTripDetailAdmin = async (tripId) => {
             feeBreakdowns: true,
             commissions: true,
             review: true,
+            inspection: true,
             disputes: {
                 include: {
                     createdBy: { select: { fullName: true, roleId: true } }

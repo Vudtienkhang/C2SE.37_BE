@@ -111,6 +111,12 @@ async function processTripAcceptance(data) {
         where: { id: tripId },
         data: { paymentStatus: 'success' }
       });
+
+      // Thông báo cập nhật ví cho khách hàng
+      socketService.emitToUser(passengerId, 'wallet:updated', { 
+        reason: 'escrow_hold',
+        amount: finalPrice
+      });
     }
 
     // 2. Cập nhật Voucher (nếu có)
@@ -347,7 +353,9 @@ async function processTripCompletion(data) {
         await invalidateProfileCache(tripResult.driver.userId);
 
         socketService.emitToUser(tripResult.driver.userId, 'wallet:updated', { 
-          balance: finalWallet.balance 
+          balance: finalWallet.balance,
+          reason: 'trip_completed',
+          amount: driverEarnings
         });
 
         // THÔNG BÁO CHO ADMIN
@@ -467,7 +475,9 @@ async function processTripCancellation(data) {
             await invalidateProfileCache(tripDetail.customer.userId);
 
             socketService.emitToUser(tripDetail.customer.userId, 'wallet:updated', { 
-              balance: wallet.balance + payment.amount 
+              balance: wallet.balance + payment.amount,
+              reason: 'refund',
+              amount: payment.amount
             });
           } catch (e) {
              logger.error(e, "[WORKER] Emit wallet:updated failed");

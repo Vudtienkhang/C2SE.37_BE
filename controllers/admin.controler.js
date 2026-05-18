@@ -11,11 +11,11 @@ export const loginController = async (req, res) => {
                 message: 'Vui lòng cung cấp đầy đủ: mail và password.',
             });
         }
-        const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-        if (!emailRegex.test(email)) {
+        // Validate đơn giản: cho phép email hoặc số điện thoại (chuỗi không rỗng)
+        if (email.length < 3) {
             return res.status(400).json({
                 success: false,
-                message: 'Địa chỉ email không đúng định dạng.',
+                message: 'Thông tin đăng nhập không hợp lệ.',
             });
         }
         if (password.length < 8) {

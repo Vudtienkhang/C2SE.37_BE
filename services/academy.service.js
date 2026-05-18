@@ -134,7 +134,9 @@ const academyService = {
 
       let status = modProg?.status || 'LOCKED';
       
-      if (status === 'LOCKED' && previousCompleted) {
+      if (isAllMandatoryPassed) {
+        status = 'COMPLETED';
+      } else if (status === 'LOCKED' && previousCompleted) {
         status = 'IDLE'; 
       }
 

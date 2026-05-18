@@ -1,5 +1,7 @@
 import * as reviewService from '../services/review.service.js';
 import { tripTasksQueue } from '../lib/queue.js';
+import * as sentimentService from '../services/sentiment.service.js';
+import { emitToAdmins } from '../services/socket.service.js';
 
 /**
  * Tạo đánh giá mới cho chuyến đi
@@ -27,6 +29,15 @@ export const createReview = async (req, res) => {
       });
     }
 
+    // Real-time notification for Admin
+    emitToAdmins('admin:new_review', { 
+      reviewId: result.id, 
+      tripId, 
+      rating, 
+      comment,
+      driverId 
+    });
+
     res.status(201).json({ success: true, data: result });
   } catch (error) {
     console.error('Create review error:', error);
@@ -39,13 +50,27 @@ export const createReview = async (req, res) => {
  */
 export const getReviews = async (req, res) => {
   try {
-    const { page, limit, search, rating } = req.query;
+    const { page, limit, search, rating, analyzeAI } = req.query;
     const result = await reviewService.getReviews({
       page: parseInt(page) || 1,
       limit: parseInt(limit) || 10,
       search: search || '',
       rating: rating || 'all'
     });
+
+    // Nếu Admin yêu cầu phân tích AI cho danh sách này
+    if (analyzeAI === 'true' && result.reviews && result.reviews.length > 0) {
+      const analyzedReviews = await Promise.all(
+        result.reviews.map(async (review) => {
+          if (review.comment && review.comment.trim()) {
+            const aiResult = await sentimentService.analyzeSentiment(review.comment);
+            return { ...review, aiSentiment: aiResult };
+          }
+          return { ...review, aiSentiment: { label: 'N/A', score: 0 } };
+        })
+      );
+      result.reviews = analyzedReviews;
+    }
 
     res.status(200).json({ success: true, ...result });
   } catch (error) {

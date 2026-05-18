@@ -51,12 +51,11 @@ export const initSocket = (server) => {
           return;
         }
 
-        // 1.1 KIỂM TRA CHỨNG CHỈ HỌC VIỆN (Linh hoạt theo yêu cầu)
-        const mandatoryQuizCount = await prisma.knowledgeQuiz.count({
-          where: { isActive: true, isMandatory: true }
-        });
+        // 1.1 KIỂM TRA CHỨNG CHỈ HỌC VIỆN (Linh hoạt theo yêu cầu, thời gian thực)
+        const { default: driverTestService } = await import('./driver.test.service.js');
+        const hasPassedAllMandatory = await driverTestService.checkDriverKnowledgeTestStatus(driver.id);
 
-        if (mandatoryQuizCount > 0 && !driver.hasPassedKnowledgeTest) {
+        if (!hasPassedAllMandatory) {
           logger.warn({ driverId: id }, '[SOCKET] Driver registration rejected (Mandatory test not passed)');
           socket.emit('driver:error', { 
             code: 'NOT_CERTIFIED',

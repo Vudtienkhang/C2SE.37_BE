@@ -77,11 +77,11 @@ export const login = async (req, res) => {
       });
     }
 
-    const phoneRegex = /^(0|84)(3|5|7|8|9)[0-9]{8}$/;
-    if (!phoneRegex.test(phone)) {
+    // Validate đơn giản: cho phép email hoặc số điện thoại (chuỗi không rỗng)
+    if (phone.length < 3) {
       return res.status(400).json({
         success: false,
-        message: 'Số điện thoại không hợp lệ.',
+        message: 'Thông tin đăng nhập không hợp lệ.',
       });
     }
 

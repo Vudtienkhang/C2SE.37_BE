@@ -95,49 +95,68 @@ const driverTestService = {
       include: { question: true }
     });
     
-    const allQuestions = assignedQuestions.map(a => a.question);
-    
-    if (allQuestions.length < questionCount) {
-      throw new Error(`Ngân hàng câu hỏi của Bài kiểm tra này (${allQuestions.length}) chưa đủ số lượng để tạo đề (${questionCount} câu).`);
-    }
-
-    // --- ADAPTIVE & CUSTOM DISTRIBUTION LOGIC ---
     let selectedQuestions = [];
-    const easyQ = allQuestions.filter(q => q.difficulty === 'EASY');
-    const medQ = allQuestions.filter(q => q.difficulty === 'MEDIUM');
-    const hardQ = allQuestions.filter(q => q.difficulty === 'HARD');
-
-    let easyPct = (quiz.easyPercentage ?? 30) / 100;
-    let medPct = (quiz.medPercentage ?? 40) / 100;
-    let hardPct = (quiz.hardPercentage ?? 30) / 100;
-
-    // Adaptive: Nếu lần trước sai nhiều (< 50%) -> Tăng EASY
-    const prevProgress = await prisma.driverQuizProgress.findUnique({
-      where: { driverId_quizId: { driverId, quizId: parseInt(quizId) } }
-    });
-
-    if (prevProgress && prevProgress.score !== null && (prevProgress.score / questionCount) < 0.5) {
-      easyPct = 0.6;
-      hardPct = 0.1;
-      medPct = 0.3;
-    } 
-
-    let easyN = Math.floor(questionCount * easyPct);
-    let hardN = Math.floor(questionCount * hardPct);
-    let medN = questionCount - easyN - hardN;
-
-    const pick = (list, n) => shuffleArray(list).slice(0, Math.max(0, n));
     
-    const pickedEasy = pick(easyQ, easyN);
-    const pickedHard = pick(hardQ, hardN);
-    const pickedMed = pick(medQ, medN);
+    if (assignedQuestions.length > 0) {
+      // CHẾ ĐỘ 1: TỰ CHỌN THỦ CÔNG (MANUAL MODE)
+      // Admin đã chỉ định thủ công danh sách câu hỏi cho bài thi này.
+      // Ta lấy toàn bộ (hoặc một tập hợp con ngẫu nhiên từ đó nếu danh sách lớn hơn questionCount)
+      // và BỎ QUA lọc theo độ khó.
+      const allQuestions = assignedQuestions.map(a => a.question);
+      
+      if (allQuestions.length <= questionCount) {
+        selectedQuestions = allQuestions;
+      } else {
+        selectedQuestions = shuffleArray(allQuestions).slice(0, questionCount);
+      }
+    } else {
+      // CHẾ ĐỘ 2: ĐỀ THI ĐỘNG (DYNAMIC MODE)
+      // Không có câu hỏi nào được gán thủ công. Hệ thống tự động bốc từ Ngân hàng câu hỏi của Module
+      // theo tỷ lệ độ khó cấu hình của bài thi (EASY, MEDIUM, HARD).
+      const allModuleQuestions = await prisma.knowledgeQuestion.findMany({
+        where: { moduleId: quiz.moduleId, isActive: true }
+      });
+      
+      if (allModuleQuestions.length < questionCount) {
+        throw new Error(`Ngân hàng câu hỏi của Module này (${allModuleQuestions.length}) chưa đủ số lượng để tạo đề (${questionCount} câu).`);
+      }
+      
+      const easyQ = allModuleQuestions.filter(q => q.difficulty === 'EASY');
+      const medQ = allModuleQuestions.filter(q => q.difficulty === 'MEDIUM');
+      const hardQ = allModuleQuestions.filter(q => q.difficulty === 'HARD');
 
-    selectedQuestions = [...pickedEasy, ...pickedHard, ...pickedMed];
-    
-    if (selectedQuestions.length < questionCount) {
-       const ids = selectedQuestions.map(s => s.id);
-       const pool = allQuestions.filter(q => !ids.includes(q.id));
-       selectedQuestions = [...selectedQuestions, ...pick(pool, questionCount - selectedQuestions.length)];
+      let easyPct = (quiz.easyPercentage ?? 30) / 100;
+      let medPct = (quiz.medPercentage ?? 40) / 100;
+      let hardPct = (quiz.hardPercentage ?? 30) / 100;
+
+      // Adaptive: Nếu lần trước sai nhiều (< 50%) -> Tăng EASY
+      const prevProgress = await prisma.driverQuizProgress.findUnique({
+        where: { driverId_quizId: { driverId, quizId: parseInt(quizId) } }
+      });
+
+      if (prevProgress && prevProgress.score !== null && (prevProgress.score / questionCount) < 0.5) {
+        easyPct = 0.6;
+        hardPct = 0.1;
+        medPct = 0.3;
+      } 
+
+      let easyN = Math.floor(questionCount * easyPct);
+      let hardN = Math.floor(questionCount * hardPct);
+      let medN = questionCount - easyN - hardN;
+
+      const pick = (list, n) => shuffleArray(list).slice(0, Math.max(0, n));
+      
+      const pickedEasy = pick(easyQ, easyN);
+      const pickedHard = pick(hardQ, hardN);
+      const pickedMed = pick(medQ, medN);
+
+      selectedQuestions = [...pickedEasy, ...pickedHard, ...pickedMed];
+      
+      if (selectedQuestions.length < questionCount) {
+         const ids = selectedQuestions.map(s => s.id);
+         const pool = allModuleQuestions.filter(q => !ids.includes(q.id));
+         selectedQuestions = [...selectedQuestions, ...pick(pool, questionCount - selectedQuestions.length)];
+      }
     }
 
     const expiresAt = new Date(new Date().getTime() + timeLimit * 60 * 1000);
@@ -370,6 +389,57 @@ const driverTestService = {
     } catch (e) {}
 
     return { score, totalScore: testHistory.totalScore, percentage, isPassed };
+  },
+
+  checkDriverKnowledgeTestStatus: async (driverId) => {
+    try {
+      const dId = parseInt(driverId);
+      if (isNaN(dId)) return false;
+
+      // 1. Đếm tổng số bài thi bắt buộc đang hoạt động (ở module đang hoạt động)
+      const totalMandatoryQuizzesCount = await prisma.knowledgeQuiz.count({
+        where: { 
+          isActive: true, 
+          isMandatory: true, 
+          module: { isActive: true, isMandatory: true } 
+        }
+      });
+
+      if (totalMandatoryQuizzesCount === 0) {
+        // Đồng bộ hóa trạng thái cột hasPassedKnowledgeTest trong Driver
+        await prisma.driver.update({
+          where: { id: dId },
+          data: { hasPassedKnowledgeTest: true }
+        }).catch(() => {});
+        return true;
+      }
+
+      // 2. Đếm số bài thi bắt buộc tài xế đã đỗ (COMPLETED)
+      const passedQuizzesCount = await prisma.driverQuizProgress.count({
+        where: {
+          driverId: dId,
+          status: 'COMPLETED',
+          quiz: { 
+            isActive: true, 
+            isMandatory: true,
+            module: { isActive: true, isMandatory: true }
+          }
+        }
+      });
+
+      const hasPassed = passedQuizzesCount >= totalMandatoryQuizzesCount;
+      
+      // Đồng bộ hóa trạng thái cột hasPassedKnowledgeTest trong Driver
+      await prisma.driver.update({
+        where: { id: dId },
+        data: { hasPassedKnowledgeTest: hasPassed }
+      }).catch(() => {});
+
+      return hasPassed;
+    } catch (error) {
+      console.error('Error in checkDriverKnowledgeTestStatus:', error);
+      return false;
+    }
   }
 };
 
