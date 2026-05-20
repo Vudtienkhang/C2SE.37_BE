@@ -257,15 +257,40 @@ export const updateDriverStatus = async (id, status, reason = null, reviewedById
 };
 
 export const updateDocumentStatus = async (id, status, reviewedById, expiryDate = null) => {
-    return await prisma.driverDocument.update({
+    const parsedReviewedById = reviewedById ? parseInt(reviewedById) : null;
+    const doc = await prisma.driverDocument.update({
         where: { id: parseInt(id) },
         data: { 
             status, 
-            reviewedById: parseInt(reviewedById),
+            reviewedById: (parsedReviewedById && !isNaN(parsedReviewedById)) ? parsedReviewedById : null,
             reviewedAt: new Date(),
             expiryDate: expiryDate ? new Date(expiryDate) : null
+        },
+        include: {
+            driver: true
         }
     });
+
+    // XÓA CACHE PROFILE ĐỂ APP CẬP NHẬT TRẠNG THÁI MỚI TỨC THÌ
+    if (doc.driver?.userId) {
+        await invalidateProfileCache(doc.driver.userId);
+        
+        // Gửi Socket event báo cho App biết tài liệu đã được duyệt/bác bỏ để nó refetch!
+        try {
+            const io = getIO();
+            if (io) {
+                io.to(`user_${doc.driver.userId}`).emit('user:profile_updated', {
+                    userId: doc.driver.userId,
+                    status: 'document_updated'
+                });
+                console.log(`[SOCKET] Emitted user:profile_updated (document_updated) to user_${doc.driver.userId}`);
+            }
+        } catch (err) {
+            console.error('[SOCKET_ERROR] Failed to emit profile update for document status:', err);
+        }
+    }
+
+    return doc;
 };
 
 export const lockDriver = async (id, hours, reason) => {

@@ -99,7 +99,8 @@ export const getAllDrivers = async (req, res) => {
 export const updateDriverStatus = async (req, res) => {
     try {
         const { id } = req.params;
-        const { status, reason, reviewedById } = req.body;
+        const { status, reason } = req.body;
+        const reviewedById = req.admin?.id || req.body.reviewedById;
         const driver = await authAdmin.updateDriverStatus(id, status, reason, reviewedById);
         return res.status(200).json({
             success: true,
@@ -115,7 +116,9 @@ export const updateDriverStatus = async (req, res) => {
 export const updateDocumentStatus = async (req, res) => {
     try {
         const { id } = req.params;
-        const { status, reviewedById, expiryDate } = req.body;
+        const { status, expiryDate } = req.body;
+        // Ưu tiên lấy ID Admin đã xác thực từ Token (req.admin.id) để tránh lỗi Foreign Key do ID giả lập
+        const reviewedById = req.admin?.id || req.body.reviewedById;
         const doc = await authAdmin.updateDocumentStatus(id, status, reviewedById, expiryDate);
         return res.status(200).json({
             success: true,

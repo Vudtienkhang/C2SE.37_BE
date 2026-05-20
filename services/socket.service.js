@@ -198,7 +198,7 @@ export const initSocket = (server) => {
       pending.currentIndex++;
       pendingTrips.set(requestId, pending);
 
-      // --- KIỂM TRA KHÓA "ĐANG CÂN NHẮC" (CHỐNG CHỒNG CHÉO) ---
+      // --- KIỂM TRA KHÓA "ĐANG CÂN NHẮC" (CHỐNG CHỒNG CHÉO) ---(Chống tranh chấp chuyến)
       const isLocked = await redis.get(`driver:${driverId}:lock`);
       if (isLocked) {
         logger.info({ driverId, requestId }, '[TRIP] Driver is considering another trip. Skipping...');
@@ -305,7 +305,7 @@ export const initSocket = (server) => {
         // 1. NGĂN CHẶN TRÙNG LẶP VÀ CHUẨN BỊ DANH SÁCH
         let finalizedDriverIds = [...new Set(rawDriverIds || [])];
 
-        // 1.1 TỰ ĐỘNG QUÉT MỞ RỘNG TRÊN SERVER NẾU DANH SÁCH TRỐNG
+        // 1.1 TỰ ĐỘNG QUÉT MỞ RỘNG TRÊN SERVER NẾU DANH SÁCH TRỐNG(Ghép chuyến)
         if (finalizedDriverIds.length === 0 && pickupLat && pickupLng) {
           logger.info({ passengerId }, '[TRIP] Client sent empty driver list. Performing server-side auto-scan...');
           const searchRadii = [5, 10, 15];
@@ -362,6 +362,22 @@ export const initSocket = (server) => {
             message: 'Bạn đang có một chuyến đi chưa hoàn thành. Vui lòng kết thúc chuyến hiện tại trước khi đặt chuyến mới.' 
           });
           return;
+        }
+
+        // 2.2 KIỂM TRA PHƯƠNG TIỆN CỦA KHÁCH HÀNG NẾU LÀ DỊCH VỤ LÁI HỘ (FOR_HIRE)
+        if (serviceType === 'FOR_HIRE') {
+          const customerWithVehicles = await prisma.customer.findUnique({
+            where: { userId: parseInt(passengerId) },
+            include: { vehicles: true }
+          });
+          
+          if (!customerWithVehicles || !customerWithVehicles.vehicles || customerWithVehicles.vehicles.length === 0) {
+            socket.emit('trip:error', { 
+              code: 'NO_VEHICLE',
+              message: 'Bạn vui lòng thêm phương tiện cá nhân trong ứng dụng trước khi đặt dịch vụ Lái xe hộ.' 
+            });
+            return;
+          }
         }
 
         // 3. XÁC THỰC KHOẢNG CÁCH VÀ SẮP XẾP ƯU TIÊN THEO HẠNG

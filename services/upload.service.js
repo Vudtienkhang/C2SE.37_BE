@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase.js';
 import prisma from '../prisma/prisma.js';
 import { getIO } from './socket.service.js';
+import { invalidateProfileCache } from './auth.services.js';
 
 export const uploadUserAvatarToSupabase = async (id, fileBuffer, mimeType) => {
   // 1. Tạo tên file độc nhất
@@ -106,6 +107,9 @@ export const uploadDriverDocumentToSupabase = async (userId, documentTypeId, fil
   } catch (err) {
       console.warn('Socket emit failed in uploadDriverDocument');
   }
+
+  // Xóa cache Profile để App hiển thị tài liệu mới tải lên ngay lập tức
+  await invalidateProfileCache(numericUserId).catch(() => {});
 
   return doc;
 };
@@ -262,6 +266,9 @@ export const uploadDriverAvatarToSupabase = async (userId, fileBuffer, mimeType)
     where: { id: numericUserId },
     data: { avatarUrl: publicUrl }
   });
+
+  // Xóa cache Profile để App hiển thị ảnh đại diện mới ngay lập tức
+  await invalidateProfileCache(numericUserId).catch(() => {});
 
   return publicUrl;
 };
