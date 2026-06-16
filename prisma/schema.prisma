@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 /* ================= ENUMS ================= */
@@ -69,68 +70,568 @@ enum TipStatus {
 /* ================= ROLES ================= */
 
 model Role {
-  id          Int     @id @default(autoincrement())
-  name        String  @unique
-  description String?
-
+  id          Int              @id @default(autoincrement())
+  name        String           @unique
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  permissions RolePermission[]
   users       User[]
+}
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+model Permission {
+  id          Int              @id @default(autoincrement())
+  code        String           @unique
+  name        String
+  description String?
+  group       String?
+  createdAt   DateTime         @default(now())
+  roles       RolePermission[]
+}
+
+model RolePermission {
+  roleId       Int
+  permissionId Int
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
 }
 
 /* ================= USERS ================= */
 
 model User {
-  id            String   @id @default(uuid())
-  fullName      String?
-  phone         String   @unique
-  email         String?  @unique
-  password      String
-
-  roleId        Int
-  role          Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
-
-  status        UserStatus @default(active)
-  isVerified    Boolean    @default(false)
-  lastLoginAt   DateTime?
-
-  customer      Customer?
-  driver        Driver?
-  wallet        Wallet?
-
-  messages      Message[]
-
-  disputesCreated  Dispute[] @relation("CreatedBy")
-  disputesResolved Dispute[] @relation("ResolvedBy")
-
-  /* ================= FIX LỖI Ở ĐÂY ================= */
-
+  id                      Int                 @id @default(autoincrement())
+  fullName                String?
+  phone                   String              @unique
+  email                   String?             @unique
+  password                String
+  roleId                  Int
+  status                  UserStatus          @default(active)
+  isVerified              Boolean             @default(false)
+  lastLoginAt             DateTime?
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+  avatarUrl               String?
+  customer                Customer?
+  disputesCreated         Dispute[]           @relation("CreatedBy")
+  disputesResolved        Dispute[]           @relation("ResolvedBy")
+  disputeLogs             DisputeLog[]
+  driver                  Driver?
   driverDocumentsReviewed DriverDocument[]
-  voucherUsages           VoucherUsage[]
+  messages                Message[]
+  notifications           Notification[]
   tipLogs                 TipLog[]
-
-  /* ================================================ */
-
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  role                    Role                @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  voucherUsages           VoucherUsage[]
+  wallet                  Wallet?
+  withdrawalRequests      WithdrawalRequest[]
+  relatives               Relative[]
 }
 
-/* ================= CUSTOMERS ================= */
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  title     String
+  content   String
+  type      String   @default("INFO")
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  data      String?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type])
+  @@index([createdAt])
+}
 
 model Customer {
-  id        String @id @default(uuid())
-  userId    String @unique
-  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id             Int               @id @default(autoincrement())
+  userId         Int               @unique
+  fullName       String?
+  avatarUrl      String?
+  createdAt      DateTime          @default(now())
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vehicles       CustomerVehicle[]
+  reviews        Review[]
+  savedAddresses SavedAddress[]
+  trips          Trip[]
+  tips           TripTip[]
+}
 
-  fullName  String?
-  avatarUrl String?
+model SavedAddress {
+  id         Int      @id @default(autoincrement())
+  customerId Int
+  type       String
+  name       String
+  address    String
+  lat        Float?
+  lng        Float?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+}
 
-  vehicles  CustomerVehicle[]
-  trips     Trip[]
-  reviews   Review[]
-  tips      TripTip[]
+model Driver {
+  id                     Int                     @id @default(autoincrement())
+  userId                 Int                     @unique
+  fullName               String?
+  avatarUrl              String?
+  cccdNumber             String                  @unique
+  licenseNumber          String                  @unique
+  licenseType            String?
+  ratingAvg              Float?
+  totalTrips             Int                     @default(0)
+  isOnline               Boolean                 @default(false)
+  status                 DriverStatus            @default(pending)
+  createdAt              DateTime                @default(now())
+  currentLat             Float?
+  currentLng             Float?
+  isBusy                 Boolean                 @default(false)
+  lastLocationAt         DateTime?
+  reason                 String?
+  suspendedUntil         DateTime?
+  rankId                 Int?
+  totalPoints            Float                   @default(0)
+  serviceType            String                  @default("FOR_HIRE")
+  certifiedAt            DateTime?
+  hasPassedKnowledgeTest Boolean                 @default(false)
+  isCertified            Boolean                 @default(false)
+  DriverRank             DriverRank?             @relation(fields: [rankId], references: [id])
+  user                   User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documents              DriverDocument[]
+  locationHistory        DriverLocationHistory[]
+  moduleProgress         DriverModuleProgress[]
+  pointLogs              DriverPointLog[]
+  quizProgress           DriverQuizProgress[]
+  testHistories          DriverTestHistory[]
+  vehicles               DriverVehicle[]
+  reviews                Review[]
+  trips                  Trip[]
+  commissions            TripCommission[]
+  tips                   TripTip[]
+  onlineSessions       OnlineSession[]
+  tripOffers             TripOffer[]
+}
 
+model DriverVehicle {
+  id          Int      @id @default(autoincrement())
+  driverId    Int
+  plateNumber String   @unique
+  brand       String?
+  model       String?
+  color       String?
+  type        String?
+  status      String   @default("pending")
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  images      String[] @default([])
+  driver      Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  trips       Trip[]
+}
+
+model DocumentType {
+  id                Int              @id @default(autoincrement())
+  name              String
+  code              String           @unique
+  description       String?
+  isExpirable       Boolean          @default(false)
+  isRequired        Boolean          @default(true)
+  isActive          Boolean          @default(true)
+  createdAt         DateTime         @default(now())
+  applicableService String           @default("BOTH")
+  documents         DriverDocument[]
+}
+
+model DriverDocument {
+  id             Int          @id @default(autoincrement())
+  driverId       Int
+  documentTypeId Int
+  fileUrl        String
+  status         String
+  expiryDate     DateTime?
+  reviewedById   Int?
+  reviewedAt     DateTime?
+  uploadedAt     DateTime     @default(now())
+  documentType   DocumentType @relation(fields: [documentTypeId], references: [id], onDelete: Cascade)
+  driver         Driver       @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  reviewedBy     User?        @relation(fields: [reviewedById], references: [id])
+}
+
+model CustomerVehicle {
+  id          Int      @id @default(autoincrement())
+  customerId  Int
+  plateNumber String   @unique
+  brand       String?
+  model       String?
+  color       String?
+  year        Int?
+  vehicleType String?
+  note        String?
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  trips       Trip[]
+}
+
+model Trip {
+  id                  Int                     @id @default(autoincrement())
+  customerId          Int
+  driverId            Int?
+  vehicleId           Int?
+  pickupAddress       String
+  pickupLat           Float
+  pickupLng           Float
+  dropoffAddress      String
+  dropoffLat          Float
+  dropoffLng          Float
+  distanceKm          Float?
+  durationEstimateMin Int?
+  priceEstimate       Float?
+  finalPrice          Float?
+  tipTotalAmount      Float?
+  status              TripStatus              @default(requested)
+  paymentStatus       PaymentStatus           @default(pending)
+  createdAt           DateTime                @default(now())
+  routePolyline       String?
+  cancelReason        String?
+  cancelledBy         String?
+  driverVehicleId     Int?
+  serviceType         ServiceType             @default(FOR_HIRE)
+  conversation        Conversation?
+  disputes            Dispute[]
+  locationHistory     DriverLocationHistory[]
+  payments            Payment[]
+  review              Review?
+  sosAlerts           SOSAlert[]
+  customer            Customer                @relation(fields: [customerId], references: [id])
+  driver              Driver?                 @relation(fields: [driverId], references: [id])
+  driverVehicle       DriverVehicle?          @relation(fields: [driverVehicleId], references: [id])
+  vehicle             CustomerVehicle?        @relation(fields: [vehicleId], references: [id])
+  commissions         TripCommission[]
+  feeBreakdowns       TripFeeBreakdown[]
+  tips                TripTip[]
+  voucherUsages       VoucherUsage[]
+  inspection          TripInspection?
+
+  @@index([customerId])
+  @@index([driverId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model TripFeeBreakdown {
+  id        Int      @id @default(autoincrement())
+  tripId    Int
+  feeType   String
+  amount    Float
+  createdAt DateTime @default(now())
+  trip      Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+}
+
+model CommissionPolicy {
+  id            Int              @id @default(autoincrement())
+  name          String
+  ratePercent   Float
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  isActive      Boolean          @default(true)
+  commissions   TripCommission[]
+}
+
+model TripCommission {
+  id                 Int               @id @default(autoincrement())
+  tripId             Int
+  driverId           Int
+  commissionPolicyId Int?
+  commissionAmount   Float
+  createdAt          DateTime          @default(now())
+  commissionPolicy   CommissionPolicy? @relation(fields: [commissionPolicyId], references: [id])
+  driver             Driver            @relation(fields: [driverId], references: [id])
+  trip               Trip              @relation(fields: [tripId], references: [id], onDelete: Cascade)
+}
+
+model Payment {
+  id            Int           @id @default(autoincrement())
+  tripId        Int
+  method        String
+  gatewayName   String?
+  transactionId String?
+  amount        Float
+  currency      String        @default("VND")
+  status        PaymentStatus @default(pending)
+  paidAt        DateTime?
+  createdAt     DateTime      @default(now())
+  trip          Trip          @relation(fields: [tripId], references: [id], onDelete: Cascade)
+}
+
+model Wallet {
+  id           Int                 @id @default(autoincrement())
+  userId       Int                 @unique
+  balance      Float               @default(0)
+  updatedAt    DateTime            @updatedAt
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions WalletTransaction[]
+}
+
+model WalletTransaction {
+  id                   Int                   @id @default(autoincrement())
+  walletId             Int
+  type                 WalletTransactionType
+  amount               Float
+  description          String?
+  createdAt            DateTime              @default(now())
+  gatewayTransactionId String?               @unique
+  reference            String?
+  proofImageUrl        String?
+  wallet               Wallet                @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
+}
+
+model WithdrawalRequest {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  amount        Float
+  bankName      String
+  accountNumber String
+  accountName   String
+  status        String   @default("pending")
+  adminNote     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  bankCode      String?
+  referenceCode String?  @unique
+  transactionId String?
+  proofImageUrl String?
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Voucher {
+  id               Int            @id @default(autoincrement())
+  code             String         @unique
+  discountType     DiscountType
+  discountValue    Float
+  startDate        DateTime
+  endDate          DateTime?
+  isActive         Boolean        @default(true)
+  maxDiscount      Float?
+  minOrderValue    Float?
+  target           String         @default("all")
+  usageLimit       Int?
+  usedCount        Int            @default(0)
+  isOneTimePerUser Boolean        @default(true)
+  usages           VoucherUsage[]
+}
+
+model VoucherUsage {
+  id             Int      @id @default(autoincrement())
+  voucherId      Int
+  userId         Int
+  tripId         Int
+  discountAmount Float
+  usedAt         DateTime @default(now())
+  trip           Trip     @relation(fields: [tripId], references: [id])
+  user           User     @relation(fields: [userId], references: [id])
+  voucher        Voucher  @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+
+  @@index([userId, tripId])
+}
+
+model Conversation {
+  id        Int       @id @default(autoincrement())
+  tripId    Int       @unique
+  createdAt DateTime  @default(now())
+  trip      Trip      @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  messages  Message[]
+}
+
+model Message {
+  id             Int          @id @default(autoincrement())
+  conversationId Int
+  senderId       Int
+  messageType    String
+  content        String?
+  fileUrl        String?
+  isRead         Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  isViolation    Boolean      @default(false)
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User         @relation(fields: [senderId], references: [id])
+
+  @@index([conversationId])
+  @@index([createdAt])
+}
+
+model Review {
+  id         Int      @id @default(autoincrement())
+  tripId     Int      @unique
+  customerId Int
+  driverId   Int
+  rating     Int
+  comment    String?
+  createdAt  DateTime @default(now())
+  customer   Customer @relation(fields: [customerId], references: [id])
+  driver     Driver   @relation(fields: [driverId], references: [id])
+  trip       Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+}
+
+model Dispute {
+  id           Int           @id @default(autoincrement())
+  tripId       Int
+  createdById  Int
+  reason       String
+  description  String?
+  status       DisputeStatus @default(open)
+  resolvedById Int?
+  resolvedAt   DateTime?
+  createdAt    DateTime      @default(now())
+  evidenceUrls String[]      @default([])
+  createdBy    User          @relation("CreatedBy", fields: [createdById], references: [id])
+  resolvedBy   User?         @relation("ResolvedBy", fields: [resolvedById], references: [id])
+  trip         Trip          @relation(fields: [tripId], references: [id])
+  logs         DisputeLog[]
+}
+
+model DisputeLog {
+  id        Int      @id @default(autoincrement())
+  disputeId Int
+  action    String
+  details   String?
+  byUserId  Int
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [byUserId], references: [id])
+  dispute   Dispute  @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+}
+
+model TripTip {
+  id         Int       @id @default(autoincrement())
+  tripId     Int
+  customerId Int
+  driverId   Int
+  amount     Float
+  status     TipStatus @default(success)
+  createdAt  DateTime  @default(now())
+  logs       TipLog[]
+  customer   Customer  @relation(fields: [customerId], references: [id])
+  driver     Driver    @relation(fields: [driverId], references: [id])
+  trip       Trip      @relation(fields: [tripId], references: [id], onDelete: Cascade)
+}
+
+model TipLog {
+  id          Int      @id @default(autoincrement())
+  tipId       Int
+  performedBy Int
+  action      String
+  createdAt   DateTime @default(now())
+  performer   User     @relation(fields: [performedBy], references: [id])
+  tip         TripTip  @relation(fields: [tipId], references: [id], onDelete: Cascade)
+}
+
+model PricingConfig {
+  id                 Int         @id @default(autoincrement())
+  name               String      @unique
+  vehicleType        String?
+  perKmPrice         Float       @default(12000)
+  nightMultiplier    Float       @default(1.3)
+  rushHourMultiplier Float       @default(1.2)
+  badWeatherFee      Float       @default(0)
+  isActive           Boolean     @default(true)
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  holidayMultiplier  Float       @default(1.0)
+  perMinPrice        Float       @default(500)
+  nightEnd           String      @default("05:00")
+  nightStart         String      @default("22:00")
+  rushHour1End       String      @default("09:00")
+  rushHour1Start     String      @default("07:00")
+  rushHour2End       String      @default("19:00")
+  rushHour2Start     String      @default("16:30")
+  systemFee          Float       @default(2000)
+  serviceType        ServiceType @default(FOR_HIRE)
+}
+
+model HolidayConfig {
+  id         Int      @id @default(autoincrement())
+  name       String
+  startDate  DateTime
+  endDate    DateTime
+  multiplier Float    @default(1.5)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model DriverRank {
+  id             Int      @id @default(autoincrement())
+  name           String   @unique
+  code           String   @unique
+  minTrips       Int      @default(0)
+  driverRate     Float    @default(80)
+  platformRate   Float    @default(20)
+  acceptanceRate String   @default("92%")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime
+  minPoints      Float?   @default(0)
+  Driver         Driver[]
+}
+
+model SystemConfig {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique
+  value       String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime
+}
+
+model DriverLocationHistory {
+  id        Int      @id @default(autoincrement())
+  driverId  Int
+  tripId    Int?
+  lat       Float
+  lng       Float
+  createdAt DateTime @default(now())
+  driver    Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  trip      Trip?    @relation(fields: [tripId], references: [id])
+
+  @@index([driverId, createdAt])
+  @@index([tripId])
+}
+
+model DriverPointLog {
+  id        Int      @id @default(autoincrement())
+  driverId  Int
+  amount    Float
+  reason    String
+  tripId    Int?
+  createdAt DateTime @default(now())
+  driver    Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@index([driverId])
+}
+
+model SOSAlert {
+  id         Int       @id @default(autoincrement())
+  tripId     Int
+  callerId   Int
+  callerRole String
+  lat        Float?
+  lng        Float?
+  status     SOSStatus @default(active)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  trip       Trip      @relation(fields: [tripId], references: [id])
+}
+
+model Relative {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  name      String
+  phone     String
   createdAt DateTime @default(now())
 }
 
@@ -338,6 +839,267 @@ model Wallet {
   transactions WalletTransaction[]
 
   updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model KnowledgeQuestion {
+  id                 Int                      @id @default(autoincrement())
+  moduleId           Int?
+  questionText       String
+  options            String[]
+  correctAnswerIndex Int
+  difficulty         String                   @default("MEDIUM")
+  isActive           Boolean                  @default(true)
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  module             KnowledgeModule?         @relation(fields: [moduleId], references: [id])
+  quizzes            QuizQuestionAssignment[]
+  moduleAssignments  ModuleQuestionAssignment[]
+}
+
+model KnowledgeModule {
+  id             Int                    @id @default(autoincrement())
+  name           String
+  description    String?
+  orderIndex     Int                    @default(0)
+  minScoreToPass Int                    @default(80)
+  isActive       Boolean                @default(true)
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  easyPercentage Int                    @default(30)
+  hardPercentage Int                    @default(30)
+  medPercentage  Int                    @default(40)
+  questionCount  Int                    @default(10)
+  isMandatory    Boolean                @default(true)
+  driverProgress DriverModuleProgress[]
+  questions      KnowledgeQuestion[]
+  moduleQuestions ModuleQuestionAssignment[]
+  quizzes        KnowledgeQuiz[]
+  contents       ModuleContent[]
+}
+
+model ModuleQuestionAssignment {
+  moduleId   Int
+  questionId Int
+  createdAt  DateTime          @default(now())
+  module     KnowledgeModule   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  question   KnowledgeQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@id([moduleId, questionId])
+}
+
+model KnowledgeQuiz {
+  id             Int                      @id @default(autoincrement())
+  moduleId       Int
+  name           String                   @default("Bài kiểm tra")
+  description    String?
+  minScoreToPass Int                      @default(80)
+  questionCount  Int                      @default(10)
+  easyPercentage Int                      @default(30)
+  medPercentage  Int                      @default(40)
+  hardPercentage Int                      @default(30)
+  isMandatory    Boolean                  @default(true)
+  orderIndex     Int                      @default(0)
+  isActive       Boolean                  @default(true)
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  driverProgress DriverQuizProgress[]
+  testHistories  DriverTestHistory[]
+  module         KnowledgeModule          @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  questions      QuizQuestionAssignment[]
+}
+
+model QuizQuestionAssignment {
+  quizId     Int
+  questionId Int
+  createdAt  DateTime          @default(now())
+  question   KnowledgeQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  quiz       KnowledgeQuiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+
+  @@id([quizId, questionId])
+}
+
+model DriverQuizProgress {
+  id          Int           @id @default(autoincrement())
+  driverId    Int
+  quizId      Int
+  status      String        @default("IDLE")
+  score       Int?          @default(0)
+  completedAt DateTime?
+  updatedAt   DateTime      @updatedAt
+  driver      Driver        @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  quiz        KnowledgeQuiz @relation(fields: [quizId], references: [id], onDelete: Cascade)
+
+  @@unique([driverId, quizId])
+}
+
+model ModuleContent {
+  id          Int             @id @default(autoincrement())
+  moduleId    Int
+  title       String
+  description String?
+  type        String          @default("VIDEO")
+  contentUrl  String
+  orderIndex  Int             @default(0)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  module      KnowledgeModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+}
+
+model DriverModuleProgress {
+  id          Int             @id @default(autoincrement())
+  driverId    Int
+  moduleId    Int
+  status      String          @default("LOCKED")
+  attempts    Int             @default(0)
+  bestScore   Int?            @default(0)
+  lastScore   Int?
+  completedAt DateTime?
+  updatedAt   DateTime        @updatedAt
+  driver      Driver          @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  module      KnowledgeModule @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([driverId, moduleId])
+}
+
+model DriverTestHistory {
+  id          Int                @id @default(autoincrement())
+  driverId    Int
+  status      String             @default("in_progress")
+  score       Int                @default(0)
+  totalScore  Int                @default(0)
+  startedAt   DateTime           @default(now())
+  completedAt DateTime?
+  expiresAt   DateTime
+  quizId      Int?
+  details     DriverTestDetail[]
+  driver      Driver             @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  quiz        KnowledgeQuiz?     @relation(fields: [quizId], references: [id])
+
+  @@index([driverId])
+  @@index([quizId])
+  @@index([status])
+  @@index([expiresAt])
+  @@index([startedAt])
+}
+
+model DriverTestDetail {
+  id                  Int               @id @default(autoincrement())
+  testHistoryId       Int
+  questionId          Int?
+  questionSnapshot    String
+  optionsSnapshot     Json
+  correctAnswerIndex  Int
+  selectedAnswerIndex Int?
+  isCorrect           Boolean           @default(false)
+  testHistory         DriverTestHistory @relation(fields: [testHistoryId], references: [id], onDelete: Cascade)
+}
+
+enum UserStatus {
+  active
+  banned
+  suspended
+}
+
+enum DriverStatus {
+  pending
+  approved
+  rejected
+  suspended
+}
+
+enum TripStatus {
+  requested
+  accepted
+  started
+  completed
+  cancelled
+  arrived
+}
+
+enum PaymentStatus {
+  pending
+  success
+  failed
+  refunded
+}
+
+enum DiscountType {
+  percent
+  fixed
+}
+
+enum WalletTransactionType {
+  credit
+  debit
+  commission
+  refund
+  withdrawal
+}
+
+enum DisputeStatus {
+  open
+  investigating
+  resolved
+  dismissed
+}
+
+enum TipStatus {
+  success
+  failed
+  refunded
+}
+
+enum SOSStatus {
+  active
+  resolved
+  dismissed
+}
+
+enum ServiceType {
+  FOR_HIRE
+  RIDE_HAILING
+}
+
+model OnlineSession {
+  id        Int      @id @default(autoincrement())
+  driverId  Int
+  startTime DateTime @default(now())
+  endTime   DateTime?
+  driver    Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@index([driverId])
+}
+
+model TripInspection {
+  id             Int      @id @default(autoincrement())
+  tripId         Int      @unique
+  videoUrl       String
+  createdAt      DateTime @default(now())
+  status         String   @default("pending") // pending, verified
+  trip           Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+}
+
+model TripOffer {
+  id          Int             @id @default(autoincrement())
+  requestId   String          // ID yêu cầu từ socket
+  driverId    Int
+  status      TripOfferStatus @default(PENDING)
+  offeredAt   DateTime        @default(now())
+  respondedAt DateTime?
+  driver      Driver          @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@index([driverId])
+  @@index([requestId])
+}
+
+enum TripOfferStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  MISSED
 }
 
 model WalletTransaction {
